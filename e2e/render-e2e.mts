@@ -6,11 +6,13 @@
 import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
 import { spawnSync, spawn } from "node:child_process";
 import { mkdirSync, rmSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const core = await import(join(root, "packages/core/src/index.ts"));
+const core = await import(pathToFileURL(join(root, "packages/core/src/index.ts")).href);
 
 function findPlaywrightFfmpeg(): string | null {
   const candidatesDirs = process.env.PLAYWRIGHT_BROWSERS_PATH
@@ -57,7 +59,7 @@ if (!FFMPEG) {
   FFMPEG = "ffmpeg";
 }
 console.log(`🎬 FFmpeg: ${FFMPEG}`);
-const WORK = "/tmp/msai-render";
+const WORK = join(tmpdir(), "msai-render");
 const W = 640, H = 360, FPS = 24;
 const SECONDS = 5;
 

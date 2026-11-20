@@ -4,6 +4,7 @@
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
 import { readFileSync, rmSync, existsSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const PORT = 4173;
 const APP_URL = `http://127.0.0.1:${PORT}/`;
@@ -19,7 +20,7 @@ rmSync(OUT_DIR, { recursive: true, force: true });
 mkdirSync(OUT_DIR, { recursive: true });
 
 const server = spawn("npx", ["vite", "preview", "--port", String(PORT), "--strictPort", "--host", "127.0.0.1"], {
-  cwd: new URL("..", import.meta.url).pathname,
+  cwd: fileURLToPath(new URL("..", import.meta.url)),
   stdio: "pipe",
 });
 await new Promise((resolve, reject) => {
