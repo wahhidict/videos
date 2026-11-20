@@ -7,6 +7,7 @@ export * from "./script";
 export * from "./director";
 export * from "./quality";
 export * from "./planner";
+export * from "./assets";
 export * from "./providers";
 export * from "./audio";
 export * from "./history";

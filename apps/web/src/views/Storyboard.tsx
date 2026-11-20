@@ -4,6 +4,7 @@
 import { useState } from "react";
 import type { ProjectDoc } from "@msaipro/core";
 import {
+  uid,
   deleteScene,
   duplicateScene,
   formatDurationAr,
@@ -16,6 +17,9 @@ import {
 } from "@msaipro/core";
 import { useApp } from "../store/appState";
 import { SceneThumb } from "../components/SceneThumb";
+import { SceneAssetPanel } from "../components/SceneAssetPanel";
+import { assetQueryForScene } from "@msaipro/core";
+import type { CandidateAsset } from "../assets/assetSearch";
 import {
   applyVoiceover,
   generateVoiceover,
@@ -27,6 +31,7 @@ import {
 export function Storyboard() {
   const { doc, updateDoc, goto, setSceneIndex, setPlayhead, t, showToast, ai } = useApp();
   const [busy, setBusy] = useState<number | "all" | null>(null);
+  const [assetsOpen, setAssetsOpen] = useState<number | null>(null);
 
   if (!doc || !doc.scenes.length) {
     return (
@@ -139,6 +144,17 @@ export function Storyboard() {
     }
   };
 
+  const sceneAssetQueries = (i: number): string[] => {
+    const planRow = doc.meta?.plan?.[i];
+    const scn = doc.scenes[i];
+    const brief = assetQueryForScene({
+      visualIdea: planRow?.visual ?? "",
+      onScreen: planRow?.onScreen ?? scn.title,
+      voiceover: scn.voiceScript,
+    });
+    return brief.queries.length ? brief.queries : [brief.query];
+  };
+
   return (
     <div className="storyboard">
       <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: "20px 24px 0", flexWrap: "wrap", gap: 10 }}>
@@ -248,7 +264,44 @@ export function Storyboard() {
                     disabled={doc.scenes.length <= 1}
                     onClick={() => { updateDoc((draft) => deleteScene(draft, i)); showToast(t("deleteScene")); }}
                   >🗑</button>
+                  <button className="btn small" onClick={() => setAssetsOpen(assetsOpen === i ? null : i)}>🖼 صور مرخّصة</button>
                 </div>
+                {assetsOpen === i && (
+                  <SceneAssetPanel
+                    queries={sceneAssetQueries(i)}
+                    onPick={(dataUrl: string, asset: CandidateAsset) => {
+                      updateDoc((draft) => {
+                        const scn = draft.scenes[i];
+                        const hasImage = scn.layers.some((l) => l.kind === "image");
+                        const layer = {
+                          id: uid("lay"),
+                          name: (asset.title || "صورة مرخّصة").slice(0, 30),
+                          kind: "image" as const,
+                          x: 0.5,
+                          y: 0.42,
+                          w: 0.5,
+                          opacity: 1,
+                          startAt: 0,
+                          anim: "fadeIn" as const,
+                          animDuration: 0.8,
+                          animDelay: 0,
+                          rot: 0,
+                          src: dataUrl,
+                          fit: "cover" as const,
+                          radius: 18,
+                        };
+                        if (hasImage) {
+                          const idx = scn.layers.map((l) => l.kind === "image").indexOf(true);
+                          scn.layers[idx] = { ...layer, id: scn.layers[idx].id };
+                        } else {
+                          scn.layers.push(layer);
+                        }
+                      });
+                      setAssetsOpen(null);
+                    }}
+                    showToast={showToast}
+                  />
+                )}
               </div>
             </div>
           );

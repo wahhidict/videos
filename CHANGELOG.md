@@ -2,6 +2,13 @@
 
 سجل المراحل على فرع العمل `vibe/motion-studio-ai-pro-4e7d27`. لا يُدمج في main إلا بموافقة المستخدم الصريحة.
 
+## المرحلة د — الأصول البصرية المرخّصة
+- `packages/core/src/assets.ts`: استخراج كلمات مفتاحية عربية (tokens + stopwords + تجريد «ال»)، `assetQueryForScene` → نَوع/عبارة/استعلامات، سجل تراخيص مسموحة (cc0/pdm/by/by-sa) مع `isAllowedLicense` و`licenseNameAr`، `scoreAsset` (تطابق محتوى×2 + ترخيص + دقة) و`rankAssets` (يشترط تطابق محتوى > 0 — الترخيص وحده لا يكفي). + 10 اختبارات.
+- `apps/web/src/assets/assetSearch.ts`: بحث فعلي في Openverse وWikimedia Commons (Promise.allSettled، دمج، ترتيب بـ rankAssets)، و`downloadAsDataUrl` عبر canvas.
+- `apps/web/src/components/SceneAssetPanel.tsx`: لوحة بحث/استخدام صور مرخصة داخل بطاقة كل مشهد، تعرض الترخيص صريحاً وتُظهر الفشل ولا تختلق نتائج.
+- دمج في `Storyboard.tsx`: زر «🖼 صور مرخصة» لكل مشهد، والتقاط يضيف/يستبدل ImageLayer في طبقات المشهد.
+- التحقق: core 149/149، web 15/15، typecheck نظيف، build نظيف (dist 359KB JS).
+
 ## المرحلة ح — توثيق وتحقق نهائي
 - `docs/ARCHITECTURE-AR.md`: توثيق المعمارية الفعلية (وحدات core، خط AI Director، الواجهة، سطح المكتب، قواعد الامتثال، مصفوفة الاختبارات).
 - `CHANGELOG.md`: هذا السجل.
