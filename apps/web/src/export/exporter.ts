@@ -7,6 +7,7 @@ import type { ProjectDoc } from "@msaipro/core";
 import { totalDuration } from "@msaipro/core";
 import { drawFrameAt } from "@msaipro/core";
 import { Muxer as Mp4Muxer, ArrayBufferTarget as Mp4Target } from "mp4-muxer";
+import type { ExportCodecPreference } from "./presets";
 import { renderAudioMix } from "../audio/engine";
 
 export interface ExportOptions {
@@ -19,6 +20,8 @@ export interface ExportOptions {
 }
 
 export type ExportFormat = "mp4" | "webm";
+export type { ExportCodecPreference, ExportSettings } from "./presets";
+export { buildExportSettings, verifyExportResult, VIDEO_CODEC_CANDIDATES, ASPECT_RATIOS, supportedResolutions } from "./presets";
 
 export interface ExportResult {
   blob: Blob;
@@ -35,6 +38,7 @@ export function pickFormat(): ExportFormat {
 }
 
 const AVC_CANDIDATES = ["avc1.640028", "avc1.4d002a", "avc1.42e01e"];
+const HEVC_CANDIDATES = ["hvc1.1.6.L123.00", "hev1.1.6.L123.00"];
 const VP9_CANDIDATE = "vp09.00.10.08";
 
 // AAC تعمل في المتصفحات ذات التراخيص؛ Opus هو البديل الحر (يتطلب 48kHz).
@@ -51,11 +55,15 @@ export async function pickAudioCodec(): Promise<{ codec: "mp4a.40.2" | "opus"; s
   return null;
 }
 
-async function pickVideoCodec(width: number, height: number, fps: number, bitrate: number): Promise<{ codec: string; muxerCodec: "avc" | "vp9" } | null> {
-  for (const codec of AVC_CANDIDATES) {
+async function pickVideoCodec(width: number, height: number, fps: number, bitrate: number, prefer: ExportCodecPreference = "h264"): Promise<{ codec: string; muxerCodec: "avc" | "hevc" | "vp9" } | null> {
+  const primary = prefer === "h265" ? [...HEVC_CANDIDATES, ...AVC_CANDIDATES] : AVC_CANDIDATES;
+  for (const codec of primary) {
     try {
       const support = await VideoEncoder.isConfigSupported({ codec, width, height, bitrate, framerate: fps });
-      if (support.supported) return { codec, muxerCodec: "avc" };
+      if (support.supported) {
+        const isHevc = codec.startsWith("hvc1") || codec.startsWith("hev1");
+        return { codec, muxerCodec: isHevc ? "hevc" : "avc" };
+      }
     } catch { /* try next */ }
   }
   try {
