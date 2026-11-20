@@ -267,7 +267,7 @@ fn piper_tts(
         .arg("--output_file")
         .arg(&out_wav);
     if let Some(scale) = length_scale {
-        command = command.arg("--length_scale").arg(format!("{scale}"));
+        command.arg("--length_scale").arg(format!("{scale}"));
     }
     let mut child = command
         .stdin(Stdio::piped())
