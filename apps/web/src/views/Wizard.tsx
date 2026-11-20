@@ -21,6 +21,21 @@ import {
 import { useApp } from "../store/appState";
 import { takeWizardInit } from "../store/wizardInit";
 import { ollamaScript } from "../ai/ollama";
+import {
+  buildPlannerPrompt,
+  composeDirectedPlan,
+  parsePlannerResponse,
+  plannerSceneCount,
+  requestFromInput,
+  type LLMScenePlan,
+} from "@msaipro/core";
+import {
+  completeViaGateway,
+  configureLLMGateway,
+  estimatePlanCost,
+  getAIGateway,
+  hasLLMKey,
+} from "../ai/llm";
 import { putAsset } from "../store/storage";
 import { onDesktop } from "../export/desktop";
 import {
@@ -31,6 +46,15 @@ import {
 } from "../voice/voiceover";
 
 const STEP_KEYS = ["stepIdea", "stepType", "stepDuration", "stepStyle", "stepVoice", "generate"] as const;
+
+type DirectedPlanArg = NonNullable<Parameters<typeof buildDocFromPlan>[5]>;
+
+const PROVIDER_NAMES: Record<string, string> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  google: "Google AI",
+  ollama: "Ollama (محلي)",
+};
 
 /** Convert script lines (Ollama or explicit user text) into structured scene plans. */
 function linesToPlans(lines: string[], targetSeconds: number): ScenePlan[] {
@@ -90,6 +114,67 @@ export function Wizard() {
       const typeNameAr = VIDEO_TYPES.find((v) => v.id === typeId)?.nameAr ?? "";
       let plan: { topic: string; targetSeconds: number; scenes: ScenePlan[] } | null = null;
       let usedAI = false;
+      let direction: DirectedPlanArg | null = null;
+
+      // المسار الأذكى: نموذج لغوي مثبّت فعلاً → خطة إنتاج سينمائية مدفوعة بموافقة صريحة.
+      const scriptMode = init.current?.mode === "text";
+      const directorInput: Parameters<typeof requestFromInput>[0] = {
+        idea: scriptMode ? undefined : subject.trim(),
+        script: scriptMode ? subject : undefined,
+        type: typeId ?? undefined,
+        style: styleId ?? undefined,
+        durationSeconds: targetSeconds,
+      };
+      const llmUsable = Boolean(scriptMode ? subject.trim().length >= 40 : subject.trim().length > 0)
+        && Boolean(ai.llmProvider)
+        && hasLLMKey();
+      if (llmUsable) {
+        configureLLMGateway(ai);
+        try {
+          const request = requestFromInput(directorInput);
+          const { system, user } = buildPlannerPrompt(request);
+          const providerName = PROVIDER_NAMES[ai.llmProvider] ?? ai.llmProvider;
+          const estimate = estimatePlanCost({
+            providerId: ai.llmProvider,
+            model: ai.llmModel,
+            promptChars: system.length + user.length,
+            sceneCount: plannerSceneCount(request),
+          });
+          const approved = window.confirm(
+            `سيرسل السكريبت إلى ${providerName} (${ai.llmModel || "النموذج الافتراضي"}).\n` +
+            `التكلفة التقديرية: ~$${estimate.estimatedUsd.toFixed(4)} (تقريبية).\n` +
+            `سقف ميزانيتك: $${ai.llmBudgetUsd.toFixed(2)} — هل توافق على الإرسال؟`,
+          );
+          if (!approved) {
+            showToast("أُلغي إرسال النموذج بموافقتك — سيُستخدم المولّد المحلي");
+            throw new Error("PAID_DECLINED");
+          }
+          showToast("جارٍ إعداد خطة الإنتاج بالنموذج...");
+          let payloadText = "";
+          const gw = getAIGateway();
+          await gw.runPaidTask("text", {
+            confirmPaid: true,
+            inputTokens: estimate.units.find((u) => u.kind === "inputTokens")?.amount ?? 0,
+            outputTokens: estimate.units.find((u) => u.kind === "outputTokens")?.amount ?? 0,
+            run: async () => {
+              payloadText = await completeViaGateway(`${system}\n\n===== USER =====\n${user}`);
+            },
+          });
+          const llmScenes: LLMScenePlan[] = parsePlannerResponse(payloadText, targetSeconds);
+          const typed = composeDirectedPlan(
+            { ...directorInput, type: directorInput.type ?? undefined },
+            llmScenes,
+          );
+          plan = { topic: typed.plan.topic, targetSeconds, scenes: typed.plan.scenes };
+          direction = typed;
+          usedAI = true;
+        } catch (llmError) {
+          const reason = llmError instanceof Error ? llmError.message : "فشل النموذج";
+          if (reason !== "PAID_DECLINED") showToast(`تعذّر النموذج (${reason}). سيُستخدم المولّد المحلي.`);
+          plan = null;
+          direction = null;
+        }
+      }
 
       if (ai.ollamaEnabled && init.current?.mode !== "text") {
         try {
@@ -123,7 +208,7 @@ export function Wizard() {
         }
       }
 
-      const built = buildDocFromPlan(doc, plan, styleId, typeId, subject.trim());
+      const built = buildDocFromPlan(doc, plan, styleId, typeId, subject.trim(), direction ?? undefined);
       built.name = name || built.name;
       built.voice = {
         mode: voiceMode === "none" ? "none" : voiceMode === "upload" ? "upload" : piperUsable ? "piper" : "system",

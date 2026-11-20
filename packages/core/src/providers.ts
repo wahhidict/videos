@@ -81,6 +81,7 @@ const PRICE_TABLE: { pattern: RegExp; perMillionInput?: number; perMillionOutput
   { pattern: /gpt-4o-mini/, perMillionInput: 0.15, perMillionOutput: 0.6 },
   { pattern: /gpt-4o/, perMillionInput: 2.5, perMillionOutput: 10 },
   { pattern: /claude-3-5-sonnet|claude-sonnet-4/, perMillionInput: 3, perMillionOutput: 15 },
+  { pattern: /gemini/, perMillionInput: 0.1, perMillionOutput: 0.4 },
   { pattern: /dall-e/, perImage: 0.04 },
   { pattern: /stable-image|sd3/, perImage: 0.03 },
   { pattern: /veo|runway|gen-3/, perMinuteVideo: 0.5 },
@@ -235,6 +236,11 @@ export class ProviderGateway {
   /** للواجهة فقط: هل المفتاح موجود؟ القيمة نفسها لا تُطبع أبداً إلا عبر maskKey. */
   hasSecret(capability: ProviderCapability): boolean {
     return Boolean(this.secrets.get(capability));
+  }
+
+  /** للواجهة فقط: تمرير قيمة المفتاح إلى ترويسة مزوّد — ممنوع تسجيلها أو حفظها في أي ملف. */
+  getSecret(capability: ProviderCapability): string | null {
+    return this.secrets.get(capability);
   }
 
   setBudget(usd: number): void {

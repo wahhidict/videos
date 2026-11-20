@@ -21,6 +21,11 @@ export interface AISettings {
   piperEnabled: boolean;
   piperModel: string;
   whisperEnabled: boolean;
+  /** مزوّد النموذج اللغوي (apiKey NEVER here — session memory only). */
+  llmProvider: string;
+  llmModel: string;
+  llmBudgetUsd: number;
+  llmBaseUrl: string;
 }
 
 export interface AppCtx {
@@ -68,13 +73,7 @@ export function useApp(): AppCtx {
 
 const AI_KEY = "msaipro.ai";
 
-function loadAI(): AISettings {
-  try {
-    const raw = localStorage.getItem(AI_KEY);
-    if (raw) return JSON.parse(raw) as AISettings;
-  } catch {
-    /* ignore */
-  }
+function loadAIDefaults(): AISettings {
   return {
     ollamaEnabled: false,
     ollamaUrl: "http://localhost:11434",
@@ -82,7 +81,25 @@ function loadAI(): AISettings {
     piperEnabled: false,
     piperModel: "",
     whisperEnabled: false,
+    llmProvider: "",
+    llmModel: "",
+    llmBudgetUsd: 5,
+    llmBaseUrl: "",
   };
+}
+
+function loadAI(): AISettings {
+  try {
+    const raw = localStorage.getItem(AI_KEY);
+    if (raw) return migrateAI(JSON.parse(raw) as Partial<AISettings>);
+    return loadAIDefaults();
+  } catch {
+    return loadAIDefaults();
+  }
+}
+
+function migrateAI(raw: Partial<AISettings> | null): AISettings {
+  return { ...loadAIDefaults(), ...(raw ?? {}) };
 }
 
 function loadLang(): Lang {

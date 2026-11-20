@@ -3,8 +3,22 @@
 import { useEffect, useState } from "react";
 import { useApp } from "../store/appState";
 import { detectOllama, listOllamaModels } from "../ai/ollama";
+import {
+  configureLLMGateway,
+  hasLLMKey,
+  maskedLLMKeyHint,
+  getAIGateway,
+  saveLLMKey,
+} from "../ai/llm";
+import { PROVIDER_REGISTRY, maskKey } from "@msaipro/core";
 import { formatBytes } from "@msaipro/core";
 import { ToolsManager } from "../components/ToolsManager";
+
+const LLM_MODEL_HINTS: Record<string, string[]> = {
+  openai: ["gpt-4o-mini", "gpt-4o"],
+  anthropic: ["claude-sonnet-4-20250514", "claude-3-5-haiku-latest"],
+  google: ["gemini-2.0-flash", "gemini-1.5-flash"],
+};
 
 export function SettingsView() {
   const { ai, setAI, lang, setLang, t, showToast, isDesktop, goto } = useApp();
@@ -12,6 +26,18 @@ export function SettingsView() {
   const [ollamaStatus, setOllamaStatus] = useState<"unknown" | "ok" | "off">("unknown");
   const [models, setModels] = useState<string[]>([]);
   const [testing, setTesting] = useState(false);
+  const [llmKeyInput, setLLMKeyInput] = useState("");
+  const [llmConn, setLLMConn] = useState<"unknown" | "ok" | "off" | "busy">(
+    hasLLMKey() && ai.llmProvider ? "ok" : "unknown",
+  );
+
+  useEffect(() => {
+    configureLLMGateway(ai);
+  }, [ai.llmProvider, ai.llmModel, ai.llmBudgetUsd, ai.llmBaseUrl]);
+
+  const llmProviders = PROVIDER_REGISTRY.filter(
+    (p) => p.capabilities.includes("text") && (p.requiresKey || p.id === "ollama"),
+  );
 
   useEffect(() => {
     if (!ai.ollamaEnabled) return;
@@ -33,6 +59,137 @@ export function SettingsView() {
     <div className="settings-page">
       <h2>⚙ {t("settings")}</h2>
       <p className="muted">{t("aiOptional")}</p>
+
+      <div className="divider" />
+
+      <h2 style={{ fontSize: 21 }}>🧠 المزوّد الذكي للإنتاج (اختياري — مدفوع)</h2>
+
+      <div className="ai-card">
+        <div className="head">
+          <b>فهم السكريبت وتخطيط المشاهد بالنموذج اللغوي</b>
+          <span className={`badge ${llmConn === "ok" ? "ok" : "off"}`}>
+            {llmConn === "ok"
+              ? `✓ ${t("detected")}${maskedLLMKeyHint() ? ` — ${maskedLLMKeyHint()}` : ""}`
+              : llmConn === "off"
+                ? "فشل الاختبار"
+                : "— غير مثبّت بعد"}
+          </span>
+          <span style={{ flex: 1 }} />
+        </div>
+        <div className="desc">
+          أدخل مفتاح مزوّد لغوي (OpenAI/Anthropic/Google) وسيُستخدم كوسيلة الذكاء الأساسية: فهم السكريبت كاملاً وتحويله إلى خطة إنتاج سينمائية منظمة.
+          بدونه يعمل التطبيق بثبات محلي من المولّدات المدمجة وبنفس المخرجات النهائية.
+          المفتاح يُحفظ في الذاكرة الجلسية فقط ولا يُكتب في أي ملف أو LocalStorage ويُمحى عند إغلاق التطبيق.
+        </div>
+        <div className="row" style={{ marginTop: 12 }}>
+          <label style={{ fontSize: 13.5, color: "var(--muted)" }}>
+            المزوّد
+            <select
+              value={ai.llmProvider}
+              onChange={(e) => {
+                setAI({ ...ai, llmProvider: e.target.value, llmModel: LLM_MODEL_HINTS[e.target.value]?.[0] ?? "" });
+                setLLMConn("unknown");
+              }}
+              style={{ width: 220 }}
+            >
+              <option value="">— دون نموذج (محلي فقط) —</option>
+              {llmProviders.map((p) => (
+                <option key={p.id} value={p.id}>{p.nameAr}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ fontSize: 13.5, color: "var(--muted)" }}>
+            النموذج
+            <input
+              type="text"
+              list="llm-model-hints"
+              placeholder="gpt-4o-mini"
+              value={ai.llmModel}
+              onChange={(e) => patchAI({ llmModel: e.target.value })}
+              style={{ width: 220 }}
+            />
+            <datalist id="llm-model-hints">
+              {(LLM_MODEL_HINTS[ai.llmProvider] ?? []).map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+          </label>
+          <label style={{ fontSize: 13.5, color: "var(--muted)" }}>
+            {ai.llmProvider === "ollama" ? "عنوان Ollama" : "عنوان بديل (اختياري)"}
+            <input
+              type="text"
+              placeholder={ai.llmProvider === "ollama" ? "http://localhost:11434" : "—"}
+              value={ai.llmBaseUrl}
+              onChange={(e) => patchAI({ llmBaseUrl: e.target.value })}
+              style={{ width: 220 }}
+            />
+          </label>
+        </div>
+        {ai.llmProvider && ai.llmProvider !== "ollama" && (
+          <div className="row" style={{ marginTop: 12 }}>
+            <label style={{ fontSize: 13.5, color: "var(--muted)" }}>
+              مفتاح API
+              <input
+                type="password"
+                dir="ltr"
+                placeholder="sk-... (جلسي فقط)"
+                value={llmKeyInput}
+                onChange={(e) => setLLMKeyInput(e.target.value)}
+                style={{ width: 260 }}
+              />
+            </label>
+            <button
+              className="btn small"
+              onClick={() => {
+                saveLLMKey(llmKeyInput);
+                setLLMKeyInput("");
+                setLLMConn(hasLLMKey() ? "ok" : "unknown");
+                showToast(hasLLMKey() ? "تم تثبيت المفتاح في الذاكرة الجلسية" : "أُفرغ المفتاح");
+              }}
+            >
+              تثبيت المفتاح
+            </button>
+            <button
+              className="btn small"
+              disabled={llmConn === "busy" || !hasLLMKey()}
+              onClick={async () => {
+                setLLMConn("busy");
+                try {
+                  const result = await getAIGateway().testConnection("text");
+                  setLLMConn(result.ok ? "ok" : "off");
+                  showToast(result.message || (result.ok ? "الاختبار نجح" : "فشل الاختبار"));
+                } catch (error) {
+                  setLLMConn("off");
+                  showToast((error as Error).message);
+                }
+              }}
+            >
+              اختبار الاتصال
+            </button>
+            <label style={{ fontSize: 13.5, color: "var(--muted)" }}>
+              سقف الميزانية ($)
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={ai.llmBudgetUsd}
+                onChange={(e) => patchAI({ llmBudgetUsd: Number(e.target.value) })}
+                style={{ width: 90 }}
+              />
+            </label>
+          </div>
+        )}
+        {ai.llmProvider && !hasLLMKey() && ai.llmProvider !== "ollama" && (
+          <p className="muted" style={{ marginTop: 8 }}>
+            مثال تقديري للتكلفة لفيديو دقيقة بـ「gpt-4o-mini」: سترى رقمًا تقريبياً بالدولار قبل كل إرسال ولن يُرسَل شيء دون موافقتك الصريحة.
+          </p>
+        )}
+        {ai.llmProvider === "ollama" && (
+          <p className="muted" style={{ marginTop: 8 }}>
+            Ollama محلي ومجاني — لا يحتاج مفتاحاً.
+          </p>
+        )}
+      </div>
 
       <div className="divider" />
 
