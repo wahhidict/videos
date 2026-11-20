@@ -2,6 +2,12 @@
 
 سجل المراحل على فرع العمل `vibe/motion-studio-ai-pro-4e7d27`. لا يُدمج في main إلا بموافقة المستخدم الصريحة.
 
+## المرحلة ح٢ — أنماط إخراج حقيقية (لا ألواناً فقط)
+- `styleDirections.ts` (جديد): `STYLE_DIRECTIONS` لكل الأنماط السبعة — لغة انتقالات، توقيع حركة، إضاءة مميزة، انحياز كاميرا، وقواعد أسلوب عربية لكل نمط (سينمائي/احترافي/ثلاثي/إنفوغرافيك/بسيط/تقني/وثائقي). النمط يلوّن الصورة والنوع يقود النبرة.
+- `director.ts`: `buildStyleGuide` يولّف دليل النمط في `transitionLanguage`/`motionSignature`/`grammarAr`، و`buildVisualPlans` يستخدم انحياز كاميرا النمط وإضاءته بدل الجداول الثابتة حسب النوع وحده.
+- `builder.ts`: `buildSceneFromPlan` بأسلوب النمط — انتقالات كل مشهد من لغة النمط وحركة نصه من توقيع الحركة (كور الـ fallback المحلي يستفيد كاملاً).
+- 7 اختبارات نمط (الإجمالي core 177) + إصلاح استدعاءات regen في Storyboard لتمرير النمط الفعلي.
+
 ## المرحلة ز — Keyframes: تحريك العناصر وحركة الكاميرا
 - `types.ts`: `Keyframe` (t/x/y/scale/rot/opacity/offsetX/offsetY/blur/ease) على `BaseLayer` + `CameraKeyframe` على `scene.camera`.
 - `keyframes.ts` (جديد): `interpolateTrack` (قبل/بعد الحدود، فرز خارج الترتيب، lerp مع مِنحنى مفتاح النهاية: linear/easeIn/easeOut/easeInOut/easeOutBack)، `evalKeyframes` لكل خاصية على حدة، `evalCameraKeyframes`.

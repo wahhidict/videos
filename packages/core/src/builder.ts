@@ -13,6 +13,7 @@ import type {
 import { uid } from "./types";
 import { estimateSceneDuration, extractTitleSafe } from "./helpers";
 import type { ScenePlan, StyleId, VideoTypeId, VisualKind } from "./script";
+import { STYLE_DIRECTIONS } from "./styleDirections";
 
 export interface Palette {
   nameAr: string;
@@ -233,18 +234,21 @@ export function buildSceneFromPlan(
   index: number,
   palette: Palette,
   vertical: boolean,
+  style: StyleId,
 ): Scene {
   const fontSize = vertical ? 60 : 80;
   const onScreen = plan.onScreen.length > 110 ? plan.onScreen.slice(0, 110) + "…" : plan.onScreen;
   const layers: Layer[] = [];
   const kind: VisualKind = plan.kind ?? (index === 0 ? "title" : index % 4 === 2 ? "chart" : "point");
+  const dir = STYLE_DIRECTIONS[style];
+  const motionFor = (slot: number) => dir.motion[slot % dir.motion.length];
   if (kind === "title") {
     layers.push(
       textLayer(onScreen, {
         palette,
         y: vertical ? 0.4 : 0.42,
         font: { family: "Cairo", size: fontSize, weight: 800, color: palette.textColor },
-        anim: "popIn",
+        anim: motionFor(0),
         animDuration: 1,
       }),
     );
@@ -284,7 +288,7 @@ export function buildSceneFromPlan(
         palette,
         y: 0.36,
         font: { family: "Cairo", size: Math.round(fontSize * 0.78), weight: 700, color: palette.textColor },
-        anim: index % 2 === 0 ? "fadeInUp" : "fadeInRight",
+        anim: motionFor(index + 1),
         animDuration: 0.8,
       }),
     );
@@ -296,8 +300,7 @@ export function buildSceneFromPlan(
     script: plan.onScreen,
     duration: plan.duration > 0 ? plan.duration : estimateSceneDuration(plan.onScreen),
     background: palette.bg,
-    transitionIn:
-      index === 0 ? "fade" : index % 3 === 0 ? "slideLeft" : index % 3 === 1 ? "slideUp" : "zoomIn",
+    transitionIn: index === 0 ? "fade" : dir.transitions[(index - 1) % dir.transitions.length],
     transitionDuration: 0.6,
     camera: { zoom: index % 2 === 0 ? 1.05 : 1.12, panX: index % 3 === 1 ? 0.02 : 0, panY: 0 },
     layers,
@@ -323,7 +326,7 @@ export function buildDocFromPlan(
   doc.scenes = plan.scenes.map((scenePlan, i) => {
     const last = i === plan.scenes.length - 1;
     const planScene: ScenePlan = last && plan.scenes.length > 2 ? { ...scenePlan, kind: "cta" } : scenePlan;
-    const scene = buildSceneFromPlan(planScene, i, palette, vertical);
+    const scene = buildSceneFromPlan(planScene, i, palette, vertical, style);
     const vp = direction?.visualPlans[i];
     if (vp) {
       scene.background = { style: vp.background, color: palette.bg.color, color2: palette.bg.color2 };

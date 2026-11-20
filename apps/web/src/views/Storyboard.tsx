@@ -87,7 +87,7 @@ export function Storyboard() {
     try {
       const scenePlan = regenerateScenePlan(idea as string, type as never, i, doc.scenes.length, Math.floor(Math.random() * 997));
       if (!scenePlan) { showToast(t("voiceGenFailed")); return; }
-      const fresh = buildSceneFromPlan(scenePlan, i, palette, vertical);
+      const fresh = buildSceneFromPlan(scenePlan, i, palette, vertical, doc.meta?.style ?? (type as never));
       fresh.id = doc.scenes[i].id;
       fresh.duration = doc.scenes[i].duration;
       let gen = null;
@@ -111,7 +111,7 @@ export function Storyboard() {
     try {
       const plan = planStoryboard(idea as string, type as never, Math.round(totalDuration(doc)));
       const paletteAll = palette;
-      const fresh = plan.scenes.map((sp, i) => buildSceneFromPlan(sp, i, paletteAll, vertical));
+      const fresh = plan.scenes.map((sp, i) => buildSceneFromPlan(sp, i, paletteAll, vertical, doc.meta?.style ?? (type as never)));
       const gen = doc.voice.mode === "piper" && desktopExt()?.piperSpeak
         ? (await genVoices(fresh.map((s, i) => ({ id: s.id, voiceScript: s.voiceScript, plannedDuration: plan.scenes[i]?.duration })))) ?? null
         : null;

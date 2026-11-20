@@ -215,9 +215,13 @@ export function planNarrative(analysis: ContentAnalysis, sceneCount: number): Na
   return [hook, setup, ...middle, cta];
 }
 
+import { STYLE_DIRECTIONS, type StyleDirection } from "./styleDirections";
+export { STYLE_DIRECTIONS, type StyleDirection };
+
 /** السابع بهوية ثابتة: دليل أسلوب بصري يُستخدم في كل المشاهد. */
 export function buildStyleGuide(style: StyleId, type: VideoTypeId): VisualStyleGuide {
   const palette = PALETTES[style];
+  const dir = STYLE_DIRECTIONS[style];
   return {
     styleId: style,
     palette: [palette.bg.color, palette.bg.color2, palette.accent, palette.textColor],
@@ -228,12 +232,10 @@ export function buildStyleGuide(style: StyleId, type: VideoTypeId): VisualStyleG
           ? "إيقاع سريع، جمل قصيرة، فعل أمر واحد في الخاتمة"
           : "لغة فصحى سهلة، جمل قصيرة، بدون مصطلحات دون شرح",
     background: BACKGROUND_BY_TYPE[type][0],
-    motionSignature:
-      type === "documentary" ? ["fadeIn", "fadeInUp"] : type === "ad" ? ["popIn", "scaleUp"] : ["fadeInUp", "scaleUp", "typewriter"],
-    transitionLanguage:
-      type === "documentary" ? ["fade", "none"] : type === "ad" ? ["zoomIn", "slideLeft"] : ["fade", "slideUp", "fade"],
+    motionSignature: dir.motion,
+    transitionLanguage: dir.transitions,
     grammarAr:
-      "عربية فصحى صحيحة: جمل مباشرة الخانة، لا فقرات مكررة، لا تعليمات إخراج داخل النص الظاهر",
+      "عربية فصحى صحيحة: جمل مباشرة الخانة، لا فقرات مكررة، لا تعليمات إخراج داخل النص الظاهر — " + dir.grammarAr,
   };
 }
 
@@ -263,8 +265,9 @@ export function buildVisualPlans(
               : i % 3 === 1
                 ? "infographic"
                 : "kineticText";
+    const dir = STYLE_DIRECTIONS[styleGuide.styleId];
     const cameraMove: VisualPlan["cameraMove"] =
-      beat.role === "hook" ? "zoomIn" : beat.role === "cta" ? "still" : i % 3 === 0 ? "driftUp" : i % 3 === 1 ? "panLeft" : "zoomOut";
+      beat.role === "hook" ? "zoomIn" : beat.role === "cta" ? "still" : dir.cameraBias[i % dir.cameraBias.length];
     const cameraAngle: VisualPlan["cameraAngle"] =
       beat.role === "hook" ? "wide" : beat.role === "evidence" ? "medium" : "static";
     return {
@@ -285,7 +288,7 @@ export function buildVisualPlans(
       lighting:
         type === "documentary" || type === "story"
           ? "إضاءة درامية بتباين عالٍ (chiaroscuro) مع ظلال طويلة"
-          : "إضاءة مستوية ناعمة تمنع فقدان تفاصيل النص",
+          : dir.lighting,
       background: bg,
       transition: styleGuide.transitionLanguage[i % styleGuide.transitionLanguage.length],
       requiredAssets: [],
