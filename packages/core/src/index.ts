@@ -5,6 +5,7 @@ export * from "./renderer";
 export * from "./subtitles";
 export * from "./script";
 export * from "./director";
+export * from "./quality";
 export * from "./builder";
 export * from "./templates";
 export * from "./helpers";
