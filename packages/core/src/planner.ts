@@ -354,6 +354,9 @@ export function toScenePlans(scenes: LLMScenePlan[]): ScenePlan[] {
       visual: scene.visualIdea || scene.shot,
       duration: scene.duration,
       kind,
+      sfx: scene.sfx,
+      transition: scene.transition,
+      cameraMove: scene.cameraMove,
     };
   });
 }

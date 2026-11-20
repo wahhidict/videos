@@ -1,7 +1,7 @@
 // Free built-in sound effects and music loops, synthesized locally with WebAudio.
 // Generated audio carries no third-party copyright — safe for unlimited use LY.
 
-import { uid, type AudioTrack } from "@msaipro/core";
+import { planSfxPlacements, uid, type AudioTrack } from "@msaipro/core";
 import { putAsset } from "../store/storage";
 
 interface SfxDef {
@@ -91,6 +91,58 @@ const SFX: SfxDef[] = [
       const gain = ctx.createGain();
       gain.gain.value = 0.7;
       src.connect(gain).connect(ctx.destination);
+      src.start();
+    },
+  },
+  {
+    id: "sparkle",
+    nameAr: "بريق مضيء",
+    kind: "sfx",
+    seconds: 1.0,
+    render: (ctx) => {
+      [1568, 2093, 2637].forEach((f, i) => {
+        const t0 = i * 0.25;
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = f;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.24, t0 + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.42);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.42);
+      });
+    },
+  },
+  {
+    id: "impact",
+    nameAr: "صفعة إيحاء",
+    kind: "sfx",
+    seconds: 0.7,
+    render: (ctx) => {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(120, 0);
+      osc.frequency.exponentialRampToValueAtTime(38, 0.5);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.95, 0);
+      gain.gain.exponentialRampToValueAtTime(0.001, 0.6);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(0.7);
+      const len = Math.floor(ctx.sampleRate * 0.25);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / 700);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const hp = ctx.createBiquadFilter();
+      hp.type = "lowpass";
+      hp.frequency.value = 900;
+      const g2 = ctx.createGain();
+      g2.gain.value = 0.5;
+      src.connect(hp).connect(g2).connect(ctx.destination);
       src.start();
     },
   },
@@ -232,4 +284,32 @@ function encodeWav(buffer: AudioBuffer): ArrayBuffer {
     }
   }
   return view.buffer;
+}
+
+/**
+ * يحسب مواضع مؤثرات الخطة (حقل sfx في meta.plan لكل مشهد) ويعيد جاهزة الإضافة:
+ * - يتجاهل ما أُضيف سلفاً لنفس المشهد بالاسم نفسه.
+ * - الإضافة الفعلية للمشروع تتم عند المستدعي (زر في استوديو الصوت).
+ */
+export async function collectPlanSfxTracks(
+  plans: { sfx?: string | null }[] | undefined,
+  durations: number[],
+  sceneIds: string[],
+  existing: AudioTrack[],
+): Promise<AudioTrack[]> {
+  if (!plans || !plans.length) return [];
+  const placements = planSfxPlacements(plans, durations);
+  const tracks: AudioTrack[] = [];
+  for (const p of placements) {
+    const lib = SFX.find((s) => s.id === p.sfxId);
+    if (!lib) continue;
+    const sceneId = sceneIds[p.sceneIndex];
+    const already = existing.some((t) => t.role === "sfx" && t.name === lib.nameAr && t.sceneId === sceneId);
+    if (already) continue;
+    const track = await createTrackFromLibrary(p.sfxId, p.startAt, "sfx");
+    if (!track) continue;
+    track.sceneId = sceneId;
+    tracks.push(track);
+  }
+  return tracks;
 }

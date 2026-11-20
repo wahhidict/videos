@@ -64,6 +64,12 @@ export interface ScenePlan {
   visual: string;
   duration: number;
   kind?: VisualKind;
+  /** مؤثر صوتي مقترح من الخطة (none يعني بلا مؤثر). */
+  sfx?: string;
+  /** انتقال دخول المشهد المخطط. */
+  transition?: string;
+  /** حركة كاميرا مخططة (still|zoomIn|zoomOut|panLeft|panRight|driftUp). */
+  cameraMove?: string;
 }
 
 export interface VideoPlan {

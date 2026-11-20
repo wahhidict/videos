@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { uid, type AudioTrack } from "@msaipro/core";
 import { useApp } from "../store/appState";
 import { putAsset } from "../store/storage";
-import { listAudioLibrary, createTrackFromLibrary } from "../audio/sfx";
+import { listAudioLibrary, createTrackFromLibrary, collectPlanSfxTracks } from "../audio/sfx";
 import { audioCtx, playTrackPreview } from "../audio/engine";
 import { onDesktop } from "../export/desktop";
 
@@ -59,6 +59,18 @@ export function AudioStudio() {
   const addFromLibrary = async (itemId: string, role: "music" | "sfx") => {
     const track = await createTrackFromLibrary(itemId, playhead, role);
     if (track) addTrack(track);
+  };
+
+  const applyPlannedSfx = async () => {
+    const tracks = await collectPlanSfxTracks(
+      doc.meta?.plan,
+      doc.scenes.map((s) => s.duration),
+      doc.scenes.map((s) => s.id),
+      doc.audio,
+    );
+    if (!tracks.length) { showToast(t("planSfxNone")); return; }
+    updateDoc((draft) => { draft.audio.push(...tracks); });
+    showToast(t("planSfxApplied") + " \u2014 " + tracks.length);
   };
 
   const previewLibrary = async (itemId: string, role: "music" | "sfx") => {
@@ -150,6 +162,9 @@ export function AudioStudio() {
       {tab === "lib" && (
         <>
           <div className="section-title" style={{ margin: "4px 0 6px" }}>المكتبة المجانية — مؤثرات وموسيقى مولّدة محلياً بترخيص حر (CC0-style: صُنعت داخل التطبيق)</div>
+          <div className="row" style={{ marginBottom: 8 }}>
+            <button className="btn small primary" onClick={() => void applyPlannedSfx()}>🎛️ {t("applyPlanSfx")}</button>
+          </div>
           {(sfxLib.some((s) => s.kind === "music") ? ["music", "sfx"] : ["sfx"]).map((kind) => (
             <div key={kind}>
               <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>{kind === "music" ? t("music") : t("soundEffects")}</div>

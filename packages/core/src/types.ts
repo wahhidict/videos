@@ -177,7 +177,7 @@ export interface ProjectDoc {
     idea?: string;
     type?: VideoTypeId;
     style?: StyleId;
-    plan?: { title: string; onScreen: string; voiceover: string; visual: string; duration: number }[];
+    plan?: { title: string; onScreen: string; voiceover: string; visual: string; duration: number; sfx?: string; transition?: string; cameraMove?: string }[];
     /** AI Director snapshot — aligned with plan.scenes by index. Internal-only visual language. */
     director?: {
       inputMode?: string;

@@ -7,7 +7,9 @@ import {
   normalizeToLimit,
   pcmPeakDbfs,
   pcmTo16,
+  planSfxPlacements,
   planVoiceFit,
+  sceneStartTimes,
 } from "../src/audio";
 import { encodeWavMono, wavDurationSeconds } from "../src/wav";
 
@@ -126,5 +128,51 @@ describe("الجولة إلى WAV", () => {
     const pcm = new Float32Array(sr * 2).fill(0.1);
     const wav = encodeWavMono(pcmTo16(pcm), sr);
     expect(wavDurationSeconds(wav)).toBeCloseTo(2.0, 1);
+  });
+});
+
+describe("توزيع مؤثرات خطة LLM على المسارات", () => {
+  it("sceneStartTimes يعطي اللحظات التراكمية", () => {
+    expect(sceneStartTimes([5, 3, 2])).toEqual([0, 5, 8]);
+  });
+
+  it("يتجاهل none وغير المعرّف", () => {
+    const placements = planSfxPlacements([{ sfx: "none" }, {}, { sfx: null }], [5, 5, 5]);
+    expect(placements).toEqual([]);
+  });
+
+  it("يمنع قيمًا خارج القاموس", () => {
+    const placements = planSfxPlacements([{ sfx: "explosion" }, { sfx: "bosos" }], [5, 5]);
+    expect(placements).toEqual([]);
+  });
+
+  it("يوزّع المؤثر داخل بداية مشهده", () => {
+    const placements = planSfxPlacements([{ sfx: "none" }, { sfx: "impact" }, { sfx: "none" }], [4, 6, 4]);
+    expect(placements).toHaveLength(1);
+    expect(placements[0].sceneIndex).toBe(1);
+    expect(placements[0].startAt).toBeCloseTo(4.2, 5);
+  });
+
+  it("يقلّم البدء ليبقى المؤثر داخل مشهده القصير", () => {
+    const placements = planSfxPlacements([{ sfx: "riser" }], [2]);
+    expect(placements[0].startAt).toBeCloseTo(0.2, 5);
+    expect(placements[0].startAt + 1.6).toBeLessThanOrEqual(2);
+  });
+
+  it("يمنع التكرار المتلاحق في المشاهد القصيرة ويستأنف بعد انقطاع الشرط", () => {
+    const placements = planSfxPlacements([{ sfx: "pop" }, { sfx: "pop" }, { sfx: "pop" }], [2.5, 2.5, 6]);
+    expect(placements).toHaveLength(2);
+    expect(placements.map((p) => p.sceneIndex)).toEqual([0, 2]);
+  });
+
+  it("يسمح بالتكرار بين مشاهد أطول من 3 ثوانٍ", () => {
+    const placements = planSfxPlacements([{ sfx: "whoosh" }, { sfx: "whoosh" }], [4, 4]);
+    expect(placements).toHaveLength(2);
+  });
+
+  it("يحترم سقف maxPlacements", () => {
+    const plans = Array.from({ length: 20 }, () => ({ sfx: "click" as string }));
+    const durations = Array.from({ length: 20 }, () => 5);
+    expect(planSfxPlacements(plans, durations, 4)).toHaveLength(4);
   });
 });

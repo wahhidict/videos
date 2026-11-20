@@ -191,3 +191,76 @@ export function pcmTo16(pcm: Float32Array): Int16Array {
   }
   return out;
 }
+
+// ———————————————————————————————
+// توزيع المؤثرات الصوتية من خطة المخرج على الخط الزمني
+// ———————————————————————————————
+
+/** المؤثرات الصوتية المسنونة في قاموس المخطط — يجب أن تكون لكل واحد صوت فعلي في مكتبة الويب. */
+export const PLAN_SFX_IDS = ["whoosh", "click", "pop", "sparkle", "impact", "riser"] as const;
+export type PlanSfxId = (typeof PLAN_SFX_IDS)[number];
+
+export interface SfxPlacement {
+  sceneIndex: number;
+  sfxId: PlanSfxId;
+  /** لحظة بدء المؤثر على الخط الزمني الكلي بالثواني — داخل مشهده قدر الإمكان. */
+  startAt: number;
+}
+
+/** لحظات بدء المشاهد تراكمياً من المدد. */
+export function sceneStartTimes(durations: number[]): number[] {
+  const out: number[] = [];
+  let acc = 0;
+  for (const d of durations) {
+    out.push(acc);
+    acc += Math.max(0, d);
+  }
+  return out;
+}
+
+/** مدة كل مؤثر مسنون بالثواني (تقريب يتقاطع مع مكتبة الويب، بحد أقصى للحجم). */
+export function planSfxDuration(id: PlanSfxId): number {
+  switch (id) {
+    case "whoosh": return 0.9;
+    case "click": return 0.12;
+    case "pop": return 0.35;
+    case "sparkle": return 1.0;
+    case "impact": return 0.7;
+    case "riser": return 1.6;
+  }
+}
+
+/**
+ * يحوّل حقل sfx في خطة المشاهد إلى مواضع مسارات فعلية:
+ * - يتجاهل none وغير المعرّف وقيم خارج القاموس.
+ * - يقدّم بدء المؤثر 0.2ث داخل المشهد، ويمنع تجاوز نهاية مشهده (يُقلَّم داخل المشهد إن أمكن).
+ * - يمنع تكرار المؤثر نفسه في مشهدين متتاليين قصيرين (< 3ث) لإضعاف الرتابة.
+ * - سقف عام maxPlacements حفاظاً على الوضوح الصوتي.
+ */
+export function planSfxPlacements(
+  plans: { sfx?: string | null }[],
+  durations: number[],
+  maxPlacements = 10,
+): SfxPlacement[] {
+  const starts = sceneStartTimes(durations);
+  const placements: SfxPlacement[] = [];
+  let prevId: PlanSfxId | null = null;
+  let prevIndex = -2;
+  for (let i = 0; i < plans.length && i < durations.length; i += 1) {
+    const raw = plans[i]?.sfx ?? null;
+    if (!raw || raw === "none") continue;
+    if (!(PLAN_SFX_IDS as readonly string[]).includes(raw)) continue;
+    const id = raw as PlanSfxId;
+    if (id === prevId && placements.length && i - prevIndex === 1 && durations[i] < 3) continue;
+    const sceneStart = starts[i];
+    const sceneDur = Math.max(0, durations[i]);
+    const offset = Math.min(0.2, sceneDur * 0.1);
+    const maxStart = Math.max(sceneStart, sceneStart + sceneDur - planSfxDuration(id));
+    const startAt = Math.max(sceneStart + offset, Math.min(sceneStart + offset, maxStart));
+    placements.push({ sceneIndex: i, sfxId: id, startAt });
+    prevId = id;
+    prevIndex = i;
+    if (placements.length >= maxPlacements) break;
+  }
+  return placements;
+}
