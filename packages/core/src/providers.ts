@@ -158,6 +158,46 @@ export interface RunPaidTaskOptions {
   run: () => Promise<void>;
 }
 
+export interface CostUnits {
+  inputTokens?: number;
+  outputTokens?: number;
+  images?: number;
+  audioMinutes?: number;
+  videoMinutes?: number;
+}
+
+/** تقدير تكلفة مستقل عن المفتاح — يُستخدم لعرض التكلفة المقدّرة قبل إدخال المفتاح أو أي نداء. */
+export function estimateCostForProvider(
+  providerId: string,
+  modelHint: string | undefined,
+  capability: ProviderCapability = "text",
+  units: CostUnits = {},
+): CostEstimate {
+  const provider = PROVIDER_REGISTRY.find((p) => p.id === providerId);
+  if (!provider) throw new GatewayError("INVALID_CONFIG", `مزوّد غير معروف: ${providerId}`);
+  const model = modelHint ?? provider.defaultModel ?? provider.id;
+  if (provider.local) {
+    return { capability, providerId: provider.id, model, units: [], estimatedUsd: 0, approximate: true };
+  }
+  const row = PRICE_TABLE.find((r) => r.pattern.test(model));
+  const unitList: CostEstimate["units"] = [];
+  let total = 0;
+  if (row) {
+    if (units.inputTokens) unitList.push({ kind: "inputTokens", amount: units.inputTokens });
+    if (units.outputTokens) unitList.push({ kind: "outputTokens", amount: units.outputTokens });
+    if (units.images) unitList.push({ kind: "images", amount: units.images });
+    if (units.audioMinutes) unitList.push({ kind: "audioMinutes", amount: units.audioMinutes });
+    if (units.videoMinutes) unitList.push({ kind: "videoMinutes", amount: units.videoMinutes });
+    total =
+      ((units.inputTokens ?? 0) / 1_000_000) * (row.perMillionInput ?? 0) +
+      ((units.outputTokens ?? 0) / 1_000_000) * (row.perMillionOutput ?? 0) +
+      (units.images ?? 0) * (row.perImage ?? 0) +
+      (units.audioMinutes ?? 0) * (row.perMinuteAudio ?? 0) +
+      (units.videoMinutes ?? 0) * (row.perMinuteVideo ?? 0);
+  }
+  return { capability, providerId: provider.id, model, units: unitList, estimatedUsd: Math.round(total * 10_000) / 10_000, approximate: true };
+}
+
 export class ProviderGateway {
   private readonly transport: TransportFn | null;
   private readonly secrets: SecretStoreLike;
@@ -190,6 +230,11 @@ export class ProviderGateway {
 
   setSecret(capability: ProviderCapability, value: string | null): void {
     this.secrets.set(capability, value);
+  }
+
+  /** للواجهة فقط: هل المفتاح موجود؟ القيمة نفسها لا تُطبع أبداً إلا عبر maskKey. */
+  hasSecret(capability: ProviderCapability): boolean {
+    return Boolean(this.secrets.get(capability));
   }
 
   setBudget(usd: number): void {
@@ -277,27 +322,7 @@ export class ProviderGateway {
     units: { inputTokens?: number; outputTokens?: number; images?: number; audioMinutes?: number; videoMinutes?: number },
   ): CostEstimate {
     const { provider, selection } = this.resolve(capability);
-    const model = selection.model ?? provider.defaultModel ?? provider.id;
-    if (provider.local) {
-      return { capability, providerId: provider.id, model, units: [], estimatedUsd: 0, approximate: true };
-    }
-    const row = PRICE_TABLE.find((r) => r.pattern.test(model));
-    const unitList: CostEstimate["units"] = [];
-    let total = 0;
-    if (row) {
-      if (units.inputTokens) unitList.push({ kind: "inputTokens", amount: units.inputTokens });
-      if (units.outputTokens) unitList.push({ kind: "outputTokens", amount: units.outputTokens });
-      if (units.images) unitList.push({ kind: "images", amount: units.images });
-      if (units.audioMinutes) unitList.push({ kind: "audioMinutes", amount: units.audioMinutes });
-      if (units.videoMinutes) unitList.push({ kind: "videoMinutes", amount: units.videoMinutes });
-      total =
-        ((units.inputTokens ?? 0) / 1_000_000) * (row.perMillionInput ?? 0) +
-        ((units.outputTokens ?? 0) / 1_000_000) * (row.perMillionOutput ?? 0) +
-        (units.images ?? 0) * (row.perImage ?? 0) +
-        (units.audioMinutes ?? 0) * (row.perMinuteAudio ?? 0) +
-        (units.videoMinutes ?? 0) * (row.perMinuteVideo ?? 0);
-    }
-    return { capability, providerId: provider.id, model, units: unitList, estimatedUsd: Math.round(total * 10_000) / 10_000, approximate: true };
+    return estimateCostForProvider(provider.id, selection.model, capability, units);
   }
 
   /** تنفيذ مهمة مدفوعة فقط بعد إذن صريح + فحص الميزانية + تسجيل الاستهلاك. */

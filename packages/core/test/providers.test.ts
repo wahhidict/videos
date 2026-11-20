@@ -3,6 +3,7 @@ import {
   GatewayError,
   MemorySecretStore,
   ProviderGateway,
+  estimateCostForProvider,
   maskKey,
   redact,
   type TransportFn,
@@ -191,4 +192,26 @@ describe("snapshotSafe", () => {
     expect(snap).not.toContain("sk-very-secret-value-987");
     expect(snap).toContain("••••");
   });
+});
+
+describe("estimateCostForProvider + hasSecret", () => {
+  it("يقدّر التكلفة قبل إدخال أي مفتاح (لا NO_PROVIDER ولا NO_KEY)", () => {
+    const estimate = estimateCostForProvider("openai", "gpt-4o-mini", "text", { inputTokens: 4000, outputTokens: 1500 });
+    expect(estimate.approximate).toBe(true);
+    expect(estimate.estimatedUsd).toBeGreaterThan(0);
+    expect(((4000 / 1_000_000) * 0.15 + (1500 / 1_000_000) * 0.6)).toBeCloseTo(estimate.estimatedUsd, 4);
+    expect(() => estimateCostForProvider("مزوّد_غير_موجود", undefined)).toThrow(GatewayError);
+  });
+
+  it("المزوّد المحلي تكلفته صفر والمفتاح لا يُكشف نصاً", () => {
+    const gw = new ProviderGateway();
+    gw.setSelection("text", { providerId: "ollama" });
+    gw.setSecret("text", "مفتاح-جلسي");
+    expect(gw.hasSecret("text")).toBe(true);
+    expect(estLocal().estimatedUsd).toBe(0);
+    expect(JSON.stringify(gw.snapshotSafe())).not.toContain("مفتاح-جلسي");
+  });
+  function estLocal() {
+    return estimateCostForProvider("ollama", undefined, "text", { inputTokens: 9999, outputTokens: 9999 });
+  }
 });
