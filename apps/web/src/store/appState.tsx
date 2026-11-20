@@ -1,8 +1,8 @@
 // Global app state (React context). Project docs live here; edits are structural clones.
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { Layer, ProjectDoc } from "@msaipro/core";
-import { newDoc, uid } from "@msaipro/core";
+import type { Layer, NaturalCommandResult, ProjectDoc } from "@msaipro/core";
+import { EditHistory, applyNaturalCommand, newDoc, parseArabicCommand, totalDuration, uid } from "@msaipro/core";
 import { listProjects, loadProject, removeProject, saveProject, type ProjectMeta } from "./storage";
 import { makeT, type Lang } from "../i18n";
 
@@ -32,6 +32,12 @@ export interface AppCtx {
   doc: ProjectDoc | null;
   setDoc: (doc: ProjectDoc) => void;
   updateDoc: (fn: (draft: ProjectDoc) => void) => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
+  runNaturalCommand: (text: string) => NaturalCommandResult;
+  confirmNaturalCommand: (cmd: NaturalCommandResult) => boolean;
   sceneIndex: number;
   setSceneIndex: (i: number) => void;
   selectedLayerId: string | null;
@@ -99,6 +105,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [ai, setAIState] = useState<AISettings>(loadAI());
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number>(0);
+  const docRef = useRef<ProjectDoc | null>(null);
+  const historyRef = useRef(new EditHistory<ProjectDoc>(60));
+  const [histVersion, setHistVersion] = useState(0);
+  const applyDoc = useCallback((next: ProjectDoc) => {
+    docRef.current = next;
+    setDocState(next);
+  }, []);
   const [isDesktop] = useState(() => "__TAURI_INTERNALS__" in (globalThis as Record<string, unknown>));
 
   useEffect(() => {
@@ -133,34 +146,90 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const refreshProjects = useCallback(() => setProjects(listProjects()), []);
 
   const setDoc = useCallback((next: ProjectDoc) => {
-    setDocState(next);
+    historyRef.current.reset();
+    setHistVersion((v) => v + 1);
+    applyDoc(next);
     setSceneIndex(0);
     setSelectedLayerId(null);
     setPlayhead(0);
-  }, []);
+  }, [applyDoc]);
 
   const updateDoc = useCallback((fn: (draft: ProjectDoc) => void) => {
-    setDocState((prev) => {
-      if (!prev) return prev;
-      const draft = cloneDoc(prev);
-      fn(draft);
-      draft.updatedAt = new Date().toISOString();
-      return draft;
-    });
-  }, []);
+    const prev = docRef.current;
+    if (!prev) return;
+    const draft = cloneDoc(prev);
+    fn(draft);
+    draft.updatedAt = new Date().toISOString();
+    historyRef.current.push(prev);
+    setHistVersion((v) => v + 1);
+    applyDoc(draft);
+  }, [applyDoc]);
 
   const openProject = useCallback(
     (id: string) => {
       const loaded = loadProject(id);
       if (!loaded) return false;
-      setDocState(loaded);
+      historyRef.current.reset();
+      setHistVersion((v) => v + 1);
+      applyDoc(loaded);
       setSceneIndex(0);
       setSelectedLayerId(null);
       setPlayhead(0);
       setRoute("editor");
       return true;
     },
-    [],
+    [applyDoc],
+  );
+
+  const undo = useCallback(() => {
+    const current = docRef.current;
+    if (!current) return;
+    const prev = historyRef.current.undo(current);
+    if (!prev) return;
+    applyDoc(prev);
+    setHistVersion((v) => v + 1);
+    setSceneIndex((i) => (i >= prev.scenes.length ? 0 : i));
+  }, [applyDoc]);
+
+  const redo = useCallback(() => {
+    const current = docRef.current;
+    if (!current) return;
+    const next = historyRef.current.redo(current);
+    if (!next) return;
+    applyDoc(next);
+    setHistVersion((v) => v + 1);
+    setSceneIndex((i) => (i >= next.scenes.length ? 0 : i));
+  }, [applyDoc]);
+
+  const runNaturalCommand = useCallback(
+    (text: string): NaturalCommandResult => {
+      const current = docRef.current;
+      if (!current) return { ok: false, kind: "unknown", summary: "لا يوجد مشروع مفتوح", destructive: false };
+      const cmd = parseArabicCommand(text, sceneIndex, current.scenes.length, totalDuration(current));
+      if (!cmd.ok) return cmd;
+      if (cmd.destructive) return cmd;
+      const draft = cloneDoc(current);
+      if (!applyNaturalCommand(draft, cmd)) return { ...cmd, ok: false };
+      historyRef.current.push(current);
+      setHistVersion((v) => v + 1);
+      applyDoc(draft);
+      return cmd;
+    },
+    [sceneIndex, applyDoc],
+  );
+
+  const confirmNaturalCommand = useCallback(
+    (cmd: NaturalCommandResult): boolean => {
+      const current = docRef.current;
+      if (!current || !cmd.ok) return false;
+      const draft = cloneDoc(current);
+      if (!applyNaturalCommand(draft, cmd)) return false;
+      historyRef.current.push(current);
+      setHistVersion((v) => v + 1);
+      applyDoc(draft);
+      return true;
+    },
+    [applyDoc],
   );
 
   const deleteProject = useCallback((id: string) => {
@@ -171,13 +240,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const newBlankProject = useCallback(
     (name = "مشروع جديد") => {
       const d = newDoc(name, lang);
-      setDocState(d);
+      historyRef.current.reset();
+      setHistVersion((v) => v + 1);
+      applyDoc(d);
       setSceneIndex(0);
       setSelectedLayerId(null);
       setPlayhead(0);
       setRoute("wizard");
     },
-    [lang],
+    [lang, applyDoc],
   );
 
   const setAI = useCallback((s: AISettings) => {
@@ -214,6 +285,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     doc,
     setDoc,
     updateDoc,
+    canUndo: histVersion >= 0 && historyRef.current.canUndo(),
+    canRedo: histVersion >= 0 && historyRef.current.canRedo(),
+    undo,
+    redo,
+    runNaturalCommand,
+    confirmNaturalCommand,
     sceneIndex,
     setSceneIndex,
     selectedLayerId,

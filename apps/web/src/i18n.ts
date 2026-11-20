@@ -171,6 +171,11 @@ const ar = {
   webLimit: "هذه العملية غير متوفرة في المتصفح لقيود أمانه. استخدم نسخة ويندوز لتنفيذها محلياً.",
   confirm: "تأكيد",
   addTextPrompt: "اكتب النص هنا",
+  undo: "تراجع",
+  redo: "إعادة",
+  commandPlaceholder: "أمر باللغة الطبيعية — مثال: اجعل المشهد الثاني سينمائياً",
+  commandRun: "تنفيذ",
+  commandConfirmed: "تم تنفيذ الأمر",
 };
 export type DictKey = keyof typeof ar;
 const en: Partial<Record<DictKey, string>> = {
