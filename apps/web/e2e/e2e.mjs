@@ -66,7 +66,7 @@ async function readLatestDoc() {
   });
 }
 
-async function createProject(idea, { type, duration, style }) {
+async function createProject(idea, { type, duration, style, voice = "بدون صوت" }) {
   await page.goto(APP_URL);
   await page.getByText("إنشاء فيديو جديد", { exact: false }).first().click();
   await page.waitForSelector("textarea");
@@ -78,10 +78,10 @@ async function createProject(idea, { type, duration, style }) {
   await page.getByRole("button", { name: /التالي/ }).click();
   await page.getByText(style, { exact: false }).first().click();
   await page.getByRole("button", { name: /التالي/ }).click();
-  await page.getByText("بدون صوت", { exact: false }).first().click();
+  await page.getByText(voice, { exact: false }).first().click();
   await page.getByRole("button", { name: /التالي/ }).click();
   await page.getByRole("button", { name: /إنشاء الفيديو/ }).click();
-  await page.waitForSelector(".sb-card canvas", { timeout: 45000 });
+  await page.waitForSelector(".sb-card canvas", { timeout: 60000 });
   await page.waitForTimeout(1500);
 }
 
@@ -169,6 +169,22 @@ try {
   checkStoryboard("F توتوريال", docF, { minScenes: 4, maxScenes: 12, targetSeconds: 60, tolerance: 3 });
   await exportMp4("F", 55, 66);
 
+  // ══ G) فيديو تعليمي 3 دقائق — الاختبار الإلزامي للاستخدام الحقيقي ══
+  await createProject("أهمية شرب الماء للجسم — فوائد الترطيب وعلامات الجفاف والكمية اليومية الموصى بها مع نصائح عملية للالتزام يومياً", { type: "تعليمي", duration: "3 دقائق", style: "إنفوغرافيك", voice: "صوت عربي رجالي" });
+  const docG = await readLatestDoc();
+  const G = checkStoryboard("G 3 دقائق", docG, { minScenes: 10, maxScenes: 18, targetSeconds: 180, tolerance: 3 });
+  ok(G.onScreens.every((t) => t.length > 0), "G: كل مشهد يحتوي نصاً");
+  const plansG = docG.meta?.plan ?? [];
+  ok(plansG.length === docG.scenes.length, `G: خطة الإنتاج الداخلية تطابق عدد المشاهد (${plansG.length}/${docG.scenes.length})`);
+  ok(plansG.every((p) => typeof p.duration === "number" && p.duration >= 2 && p.duration <= 25), "G: مدد المشاهد داخل الحدود 2-25ث");
+  ok(plansG.every((p) => typeof (p.voiceover ?? p.onScreen) === "string" && (p.voiceover ?? p.onScreen).trim().length > 0), "G: لكل مشهد تعليق صوتي مكتوب");
+  const PLANNED_SFX = ["none", "whoosh", "click", "pop", "sparkle", "impact", "riser"];
+  const PLANNED_CAMERA = ["still", "zoomIn", "zoomOut", "panLeft", "panRight", "driftUp"];
+  ok(plansG.every((p) => !p.sfx || PLANNED_SFX.includes(p.sfx)), "G: قيم المؤثرات داخل القاموس المسموح");
+  ok(plansG.every((p) => !p.cameraMove || PLANNED_CAMERA.includes(p.cameraMove)), "G: قيم حركة الكاميرا داخل القاموس المسموح");
+  ok(docG.scenes.every((s) => s.layers.length > 0), "G: كل مشهد يحتوي طبقات مرئية");
+  await exportMp4("G", 172, 190);
+
   // ══ تراجع/إعادة + أوامر لغة طبيعية في المحرر ══
   await page.goto(APP_URL);
   await page.getByText("إنشاء فيديو جديد", { exact: false }).first().click();
@@ -244,5 +260,5 @@ if (failures > 0) {
   console.error(`\nعدد الإخفاقات: ${failures}`);
   process.exit(1);
 }
-console.log("\n🎉 كل اختبارات الاستخدام الحقيقي الستة (A–F) + التراجع والأوامر نجحت");
+console.log("\n🎉 كل اختبارات الاستخدام الحقيقي السبعة (A–G) + التراجع والأوامر نجحت");
 process.exit(0);
