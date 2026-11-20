@@ -44,10 +44,9 @@ export interface RenderedAudio {
 }
 
 /** Offline-mix every audio track into one buffer, exactly aligned to the timeline. */
-export async function renderAudioMix(doc: ProjectDoc, totalSec: number): Promise<RenderedAudio | null> {
+export async function renderAudioMix(doc: ProjectDoc, totalSec: number, sampleRate = 44100): Promise<RenderedAudio | null> {
   const active = doc.audio;
   if (!active.length || totalSec <= 0) return null;
-  const sampleRate = 44100;
   const length = Math.ceil(totalSec * sampleRate);
   const offline = new OfflineAudioContext(2, length, sampleRate);
   let any = false;

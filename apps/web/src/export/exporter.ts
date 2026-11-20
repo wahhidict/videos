@@ -37,6 +37,20 @@ export function pickFormat(): ExportFormat {
 const AVC_CANDIDATES = ["avc1.640028", "avc1.4d002a", "avc1.42e01e"];
 const VP9_CANDIDATE = "vp09.00.10.08";
 
+// AAC تعمل في المتصفحات ذات التراخيص؛ Opus هو البديل الحر (يتطلب 48kHz).
+export async function pickAudioCodec(): Promise<{ codec: "mp4a.40.2" | "opus"; sampleRate: 44100 | 48000 } | null> {
+  if (typeof window === "undefined" || !("AudioEncoder" in window)) return null;
+  try {
+    const aac = await AudioEncoder.isConfigSupported({ codec: "mp4a.40.2", sampleRate: 44100, numberOfChannels: 2, bitrate: 128_000 });
+    if (aac.supported) return { codec: "mp4a.40.2", sampleRate: 44100 };
+  } catch { /* try opus */ }
+  try {
+    const opus = await AudioEncoder.isConfigSupported({ codec: "opus", sampleRate: 48000, numberOfChannels: 2, bitrate: 128_000 });
+    if (opus.supported) return { codec: "opus", sampleRate: 48000 };
+  } catch { /* none */ }
+  return null;
+}
+
 async function pickVideoCodec(width: number, height: number, fps: number, bitrate: number): Promise<{ codec: string; muxerCodec: "avc" | "vp9" } | null> {
   for (const codec of AVC_CANDIDATES) {
     try {
@@ -78,10 +92,12 @@ async function exportWebCodecs(doc: ProjectDoc, opts: ExportOptions): Promise<Ex
   }
   opts.onLog(`المرمّز المختار: ${picked.codec}`);
   const target = new Mp4Target();
+  const audioPick = doc.audio.length > 0 ? await pickAudioCodec() : null;
+  if (doc.audio.length > 0 && !audioPick) opts.onLog("ترميز الصوت غير مدعوم في هذا المتصفح — سيصدر الفيديو صامتًا");
   const muxer = new Mp4Muxer({
     target,
     video: { codec: picked.muxerCodec, width, height },
-    audio: { codec: "aac", sampleRate: 44100, numberOfChannels: 2 },
+    ...(audioPick ? { audio: { codec: audioPick.codec === "mp4a.40.2" ? "aac" : "opus", sampleRate: audioPick.sampleRate, numberOfChannels: 2 } } : {}),
     fastStart: "in-memory",
   });
 
@@ -122,17 +138,17 @@ async function exportWebCodecs(doc: ProjectDoc, opts: ExportOptions): Promise<Ex
   opts.onLog("تم ترميز الفيديو بنجاح");
 
   let audioFrames = 0;
-  const mix = await renderAudioMix(doc, totalSec);
-  if (mix && "AudioEncoder" in window) {
-    opts.onLog("جارٍ ترميز الصوت (AAC)...");
+  const mix = audioPick ? await renderAudioMix(doc, totalSec, audioPick.sampleRate) : null;
+  if (audioPick && mix) {
+    opts.onLog(`جارٍ ترميز الصوت (${audioPick.codec === "mp4a.40.2" ? "AAC" : "Opus"})...`);
     const audioEncoder = new AudioEncoder({
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
       error: (e) => opts.onLog(`خطأ صوت: ${String(e)}`),
     });
     try {
       audioEncoder.configure({
-        codec: "mp4a.40.2",
-        sampleRate: 44100,
+        codec: audioPick.codec,
+        sampleRate: audioPick.sampleRate,
         numberOfChannels: 2,
         bitrate: 128_000,
       });
@@ -147,7 +163,7 @@ async function exportWebCodecs(doc: ProjectDoc, opts: ExportOptions): Promise<Ex
         }
         const chunk = new AudioData({
           format: "f32",
-          sampleRate: 44100,
+          sampleRate: audioPick.sampleRate,
           numberOfFrames: n,
           numberOfChannels: channels,
           timestamp: Math.round((off / mix.sampleRate) * 1_000_000),
@@ -166,12 +182,6 @@ async function exportWebCodecs(doc: ProjectDoc, opts: ExportOptions): Promise<Ex
     }
   }
 
-  if ("AudioEncoder" in window) {
-    try {
-      const aacSupport = await AudioEncoder.isConfigSupported({ codec: "mp4a.40.2", sampleRate: 44100, numberOfChannels: 2, bitrate: 128_000 });
-      if (!aacSupport.supported) opts.onLog("ترميز AAC غير مدعوم — سيصدر الفيديو صامتاً");
-    } catch { /* ignore */ }
-  }
   muxer.finalize();
   const blob = new Blob([target.buffer], { type: "video/mp4" });
   return { blob, format: "mp4", frames: totalFrames, seconds: totalSec, audioFrames };
