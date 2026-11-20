@@ -16,6 +16,7 @@ interface ToolsState {
 interface DesktopExt {
   detectTools?: () => Promise<Record<string, boolean>>;
   installTool?: (tool: string) => Promise<boolean>;
+  cancelInstall?: (tool: string) => Promise<boolean>;
   onToolProgress?: (cb: (p: ToolProgress) => void) => Promise<() => void>;
 }
 
@@ -84,7 +85,7 @@ export function ToolsManager() {
       if (p.done) {
         unlisten.current();
         setBusyId(null);
-        showToast(p.error ? t("toolsFailed") : t("toolsDone"));
+        showToast(p.cancelled ? t("toolsCancelled") : p.error ? t("toolsFailed") : t("toolsDone"));
         void refresh();
       }
     })) ?? (() => undefined);
@@ -171,6 +172,17 @@ export function ToolsManager() {
             <div className="progress-inner" style={{ width: `${Math.round(prog.pct)}%` }} />
           </div>
           <div className="muted" style={{ marginTop: 6 }}>{Math.round(prog.pct)}%</div>
+          <div className="row" style={{ marginTop: 14 }}>
+            <button
+              className="btn"
+              onClick={() => {
+                const ext = desktopExt();
+                if (ext?.cancelInstall) void ext.cancelInstall(busyId);
+              }}
+            >
+              {t("cancel")}
+            </button>
+          </div>
         </Modal>
       )}
     </>

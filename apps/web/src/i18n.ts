@@ -124,6 +124,7 @@ const ar = {
   toolsDownloading: "جارٍ التنزيل والتثبيت…",
   toolsDone: "اكتمل التثبيت ✓",
   toolsFailed: "فشل التثبيت — راجع الاتصال بالإنترنت وحاول مجدداً",
+  toolsCancelled: "أُلغي التنزيل ولم يتم تثبيت الأداة",
   toolsWindowsOnly: "التثبيت التلقائي متاح في نسخة الويندوز.",
   detected: "متصل",
   notDetected: "غير مثبّت",

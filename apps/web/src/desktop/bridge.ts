@@ -36,6 +36,7 @@ export interface ToolProgress {
   pct: number;
   done?: boolean;
   error?: boolean;
+  cancelled?: boolean;
 }
 
 export function installDesktopBridge(): void {
@@ -85,6 +86,13 @@ export function installDesktopBridge(): void {
     installTool: async (tool: string): Promise<boolean> => {
       try {
         return (await invoke("install_tool", { tool })) === true;
+      } catch {
+        return false;
+      }
+    },
+    cancelInstall: async (tool: string): Promise<boolean> => {
+      try {
+        return (await invoke("cancel_install", { tool })) === true;
       } catch {
         return false;
       }
