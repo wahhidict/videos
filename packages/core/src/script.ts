@@ -646,6 +646,63 @@ export function scaleDurations(scenes: ScenePlan[], targetSeconds: number): void
   }
 }
 
+/** Storyboard from a user-written script: keep the user's own sentences verbatim, no rephrasing. */
+export function planStoryboardFromScript(script: string, _type: VideoTypeId, targetSeconds: number): VideoPlan {
+  const topic = deriveTopic(script);
+  const maxCount = planSceneCount(targetSeconds) * 2;
+  const lines = splitScriptIntoLines(script)
+    .map((l) => l.replace(/\s+/g, " ").trim())
+    .filter((l) => l.length > 8)
+    .slice(0, maxCount);
+  const target = planSceneCount(targetSeconds);
+  const parts: string[] = [...lines];
+  let guard = maxCount * 2;
+  while (parts.length < target && guard > 0 && splitLongestPart(parts)) guard -= 1;
+  const scenes: ScenePlan[] = parts.map((line, i) => ({
+    title: line.split(/\s+/).slice(0, 5).join(" ").replace(/^[,:\u060C-]+/, "").trim() || `${i + 1}`,
+    onScreen: line.length > 72 ? `${line.slice(0, 72).trim()}…` : line,
+    voiceover: line,
+    visual: "",
+    duration: 0,
+    kind: i === 0 ? "title" : i === parts.length - 1 ? "cta" : "point",
+  }));
+  scaleDurations(scenes, targetSeconds);
+  return { topic, scenes, targetSeconds };
+}
+
+/** Split the longest line at its most balanced clause break — segmentation, never rewording. */
+function splitLongestPart(parts: string[]): boolean {
+  let idx = -1;
+  let bestWords = 8;
+  parts.forEach((line, i) => {
+    const words = line.split(/\s+/).filter(Boolean).length;
+    if (words > bestWords) {
+      idx = i;
+      bestWords = words;
+    }
+  });
+  if (idx < 0) return false;
+  const line = parts[idx];
+  const commas = [...line.matchAll(/\u060C/g)]
+    .map((m) => m.index ?? -1)
+    .filter((i) => i > 2 && i < line.length - 4);
+  if (commas.length > 0) {
+    const mid = line.length / 2;
+    const cut = commas.reduce((a, b) => (Math.abs(b - mid) < Math.abs(a - mid) ? b : a)) + 1;
+    const first = line.slice(0, cut).trim().replace(/\s+$/, "");
+    const second = line.slice(cut).trim().replace(/^[\s\u060C]+/, "");
+    if (first && second) {
+      parts.splice(idx, 1, first, second);
+      return true;
+    }
+  }
+  const words = line.split(/\s+/).filter(Boolean);
+  if (words.length < 8) return false;
+  const splitAt = Math.max(3, Math.round(words.length * 0.6));
+  parts.splice(idx, 1, words.slice(0, splitAt).join(" "), words.slice(splitAt).join(" "));
+  return true;
+}
+
 /** Full structured storyboard plan from a plain user idea. Each scene is unique - no repetition. */
 export function planStoryboard(idea: string, type: VideoTypeId, targetSeconds: number): VideoPlan {
   const topic = deriveTopic(idea);

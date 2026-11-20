@@ -74,7 +74,7 @@ export const PALETTES: Record<StyleId, Palette> = {
   },
 };
 
-const VERTICAL_TYPES: VideoTypeId[] = ["reels"];
+export const VERTICAL_TYPES: VideoTypeId[] = ["reels"];
 
 export function canvasForType(type: VideoTypeId): { width: number; height: number; fps: 30 } {
   if (VERTICAL_TYPES.includes(type)) return { width: 1080, height: 1920, fps: 30 };
@@ -315,6 +315,7 @@ export function buildDocFromPlan(
   style: StyleId,
   type: VideoTypeId,
   metaIdea?: string,
+  direction?: import("./director").DirectedPlan,
 ): ProjectDoc {
   const palette = PALETTES[style];
   doc.canvas = canvasForType(type);
@@ -322,7 +323,18 @@ export function buildDocFromPlan(
   doc.scenes = plan.scenes.map((scenePlan, i) => {
     const last = i === plan.scenes.length - 1;
     const planScene: ScenePlan = last && plan.scenes.length > 2 ? { ...scenePlan, kind: "cta" } : scenePlan;
-    return buildSceneFromPlan(planScene, i, palette, vertical);
+    const scene = buildSceneFromPlan(planScene, i, palette, vertical);
+    const vp = direction?.visualPlans[i];
+    if (vp) {
+      scene.background = { style: vp.background, color: palette.bg.color, color2: palette.bg.color2 };
+      scene.transitionIn = vp.transition;
+      scene.camera = {
+        zoom: vp.cameraMove === "zoomIn" ? 1.14 : vp.cameraMove === "zoomOut" ? 1.0 : 1.06,
+        panX: vp.cameraMove === "panLeft" ? -0.03 : 0,
+        panY: 0,
+      };
+    }
+    return scene;
   });
   doc.meta = {
     idea: metaIdea ?? plan.topic,
@@ -330,5 +342,27 @@ export function buildDocFromPlan(
     style,
     plan: plan.scenes,
   };
+  if (direction) {
+    doc.meta.director = {
+      inputMode: direction.analysis.inputMode,
+      audience: direction.analysis.audience,
+      platform: direction.analysis.platform,
+      tone: direction.analysis.tone,
+      message: direction.analysis.message,
+      subIdeas: direction.analysis.subIdeas,
+      purpose: direction.visualPlans.map((vp) => vp.purpose),
+      visualType: direction.visualPlans.map((vp) => vp.visualType),
+      cameraAngle: direction.visualPlans.map((vp) => vp.cameraAngle),
+      cameraMove: direction.visualPlans.map((vp) => vp.cameraMove),
+      lighting: direction.visualPlans.map((vp) => vp.lighting),
+      composition: direction.visualPlans.map((vp) => vp.composition),
+      styleGuide: {
+        styleId: direction.styleGuide.styleId,
+        grammarAr: direction.styleGuide.grammarAr,
+        textTone: direction.styleGuide.textTone,
+        palette: direction.styleGuide.palette,
+      },
+    };
+  }
   return doc;
 }

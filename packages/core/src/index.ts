@@ -4,6 +4,7 @@ export * from "./presets";
 export * from "./renderer";
 export * from "./subtitles";
 export * from "./script";
+export * from "./director";
 export * from "./builder";
 export * from "./templates";
 export * from "./helpers";

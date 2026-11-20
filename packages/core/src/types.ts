@@ -178,6 +178,22 @@ export interface ProjectDoc {
     type?: VideoTypeId;
     style?: StyleId;
     plan?: { title: string; onScreen: string; voiceover: string; visual: string; duration: number }[];
+    /** AI Director snapshot — aligned with plan.scenes by index. Internal-only visual language. */
+    director?: {
+      inputMode?: string;
+      audience?: string;
+      platform?: string;
+      tone?: string;
+      message?: string;
+      subIdeas?: string[];
+      purpose?: string[];
+      visualType?: string[];
+      cameraAngle?: string[];
+      cameraMove?: string[];
+      lighting?: string[];
+      composition?: string[];
+      styleGuide?: { styleId?: string; grammarAr?: string; textTone?: string; palette?: string[] };
+    };
   };
 }
 
