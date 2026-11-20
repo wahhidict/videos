@@ -8,6 +8,8 @@ export * from "./director";
 export * from "./quality";
 export * from "./providers";
 export * from "./audio";
+export * from "./history";
+export * from "./commands";
 export * from "./builder";
 export * from "./templates";
 export * from "./helpers";
