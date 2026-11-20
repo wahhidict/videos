@@ -1,0 +1,32 @@
+{
+  "name": "@msaipro/web",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "e2e:browser": "node e2e/e2e.mjs"
+  },
+  "dependencies": {
+    "@fontsource/cairo": "^5.1.0",
+    "@fontsource/tajawal": "^5.1.0",
+    "@msaipro/core": "*",
+    "mp4-muxer": "^5.1.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "jsdom": "^31.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.9"
+  }
+}
