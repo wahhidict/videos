@@ -3,11 +3,8 @@
   "productName": "استوديو الحركة الذكي",
   "version": "3.0.0",
   "identifier": "pro.msaipro.desktop",
-  "build": {
-    "withGlobalTauri": true,
-    "frontendDist": "../../web/dist"
-  },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "استوديو الحركة الذكي — نسخة ويندوز",
