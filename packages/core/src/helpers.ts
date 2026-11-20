@@ -17,6 +17,15 @@ export function formatTime(sec: number): string {
   return `${p2(m)}:${p2(r)}`;
 }
 
+export function formatDurationAr(sec: number): string {
+  const s = Math.max(0, sec);
+  const rounded = Math.round(s * 10) / 10;
+  if (rounded < 60) {
+    return `${rounded} ثوانٍ`;
+  }
+  return formatTime(rounded);
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${Math.round(bytes)} بايت`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} ك.ب`;

@@ -16,7 +16,8 @@
     "e2e:render": "tsx e2e/render-e2e.mts",
     "e2e:browser": "node apps/web/e2e/e2e.mjs",
     "desktop:dev": "npm run tauri --workspace @msaipro/desktop dev",
-    "desktop:build": "npm run tauri --workspace @msaipro/desktop build"
+    "desktop:build": "npm run tauri --workspace @msaipro/desktop build",
+    "e2e:production": "tsx e2e/production-tests.mts"
   },
   "devDependencies": {
     "@napi-rs/canvas": "^1.1.1",

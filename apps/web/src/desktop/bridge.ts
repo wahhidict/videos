@@ -61,8 +61,8 @@ export function installDesktopBridge(): void {
         return {};
       }
     },
-    piperSpeak: async (text: string, model: string): Promise<Blob | null> => {
-      const out = await invoke("piper_tts", { text, model });
+    piperSpeak: async (text: string, model: string, lengthScale?: number): Promise<Blob | null> => {
+      const out = await invoke("piper_tts", { text, model, lengthScale: lengthScale ?? null });
       if (typeof out !== "string" || !out) return null;
       const bin = atob(out);
       const bytes = new Uint8Array(bin.length);

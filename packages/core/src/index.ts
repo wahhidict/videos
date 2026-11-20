@@ -7,4 +7,5 @@ export * from "./script";
 export * from "./builder";
 export * from "./templates";
 export * from "./helpers";
+export * from "./wav";
 export * from "./document";

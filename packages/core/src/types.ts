@@ -1,5 +1,7 @@
 // Core document model for Motion Studio AI Pro (Arabic-first).
 
+import type { StyleId, VideoTypeId } from "./script";
+
 export const SCHEMA_VERSION = 1;
 
 export type Lang = "ar" | "en";
@@ -134,6 +136,7 @@ export interface AudioTrack {
   volume: number;
   fadeIn: number;
   fadeOut: number;
+  sceneId?: string;
 }
 
 export interface SubtitleCue {
@@ -170,6 +173,12 @@ export interface ProjectDoc {
   };
   voice: VoiceSettings;
   quality: "draft" | "balanced" | "high";
+  meta?: {
+    idea?: string;
+    type?: VideoTypeId;
+    style?: StyleId;
+    plan?: { title: string; onScreen: string; voiceover: string; visual: string; duration: number }[];
+  };
 }
 
 export interface StoryboardCard {

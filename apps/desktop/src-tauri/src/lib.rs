@@ -242,7 +242,11 @@ fn find_tool(name: &str) -> Option<PathBuf> {
 }
 
 #[tauri::command]
-fn piper_tts(text: String, model: String) -> Result<Option<String>, String> {
+fn piper_tts(
+    text: String,
+    model: String,
+    length_scale: Option<f64>,
+) -> Result<Option<String>, String> {
     let piper = match find_tool("piper") {
         Some(p) => p,
         None => return Ok(None),
@@ -256,11 +260,16 @@ fn piper_tts(text: String, model: String) -> Result<Option<String>, String> {
     if !model_path.is_file() {
         return Ok(None);
     }
-    let mut child = Command::new(&piper)
+    let mut command = Command::new(&piper);
+    command
         .arg("--model")
         .arg(&model_path)
         .arg("--output_file")
-        .arg(&out_wav)
+        .arg(&out_wav);
+    if let Some(scale) = length_scale {
+        command = command.arg("--length_scale").arg(format!("{scale}"));
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

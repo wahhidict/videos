@@ -12,7 +12,7 @@ import type {
 } from "./types";
 import { uid } from "./types";
 import { estimateSceneDuration, extractTitleSafe } from "./helpers";
-import type { StyleId, VideoTypeId } from "./script";
+import type { ScenePlan, StyleId, VideoTypeId, VisualKind } from "./script";
 
 export interface Palette {
   nameAr: string;
@@ -225,5 +225,110 @@ export function buildDocFromScript(
   const palette = PALETTES[style];
   doc.canvas = canvasForType(type);
   doc.scenes = lines.map((line, i) => buildScene(line, i, palette, VERTICAL_TYPES.includes(type)));
+  return doc;
+}
+
+export function buildSceneFromPlan(
+  plan: ScenePlan,
+  index: number,
+  palette: Palette,
+  vertical: boolean,
+): Scene {
+  const fontSize = vertical ? 60 : 80;
+  const onScreen = plan.onScreen.length > 110 ? plan.onScreen.slice(0, 110) + "…" : plan.onScreen;
+  const layers: Layer[] = [];
+  const kind: VisualKind = plan.kind ?? (index === 0 ? "title" : index % 4 === 2 ? "chart" : "point");
+  if (kind === "title") {
+    layers.push(
+      textLayer(onScreen, {
+        palette,
+        y: vertical ? 0.4 : 0.42,
+        font: { family: "Cairo", size: fontSize, weight: 800, color: palette.textColor },
+        anim: "popIn",
+        animDuration: 1,
+      }),
+    );
+    layers.push(accentShape(palette.accent, 0, vertical ? 0.56 : 0.62));
+  } else if (kind === "chart") {
+    layers.push(
+      textLayer(onScreen, {
+        palette,
+        y: 0.22,
+        font: { family: "Cairo", size: Math.round(fontSize * 0.6), weight: 700, color: palette.textColor },
+        anim: "fadeInDown",
+        animDuration: 0.7,
+      }),
+    );
+    layers.push(
+      counterChart("", [
+        { label: "\u0661", value: 35 + ((index * 11) % 25) },
+        { label: "\u0662", value: 55 + ((index * 7) % 30) },
+        { label: "\u0663", value: 70 + ((index * 5) % 25) },
+        { label: "\u0664", value: 45 + ((index * 13) % 30) },
+      ]),
+    );
+  } else if (kind === "cta") {
+    layers.push(
+      textLayer(onScreen, {
+        palette,
+        y: 0.46,
+        font: { family: "Cairo", size: Math.round(fontSize * 0.9), weight: 900, color: palette.textColor },
+        anim: "pulse",
+        animDuration: 0.9,
+      }),
+    );
+    layers.push(accentShape(palette.accent, 1, vertical ? 0.6 : 0.66));
+  } else {
+    layers.push(
+      textLayer(onScreen, {
+        palette,
+        y: 0.36,
+        font: { family: "Cairo", size: Math.round(fontSize * 0.78), weight: 700, color: palette.textColor },
+        anim: index % 2 === 0 ? "fadeInUp" : "fadeInRight",
+        animDuration: 0.8,
+      }),
+    );
+    if (index % 3 === 1) layers.push(accentShape(palette.accent, index, vertical ? 0.52 : 0.58));
+  }
+  return {
+    id: uid("scn"),
+    title: plan.title,
+    script: plan.onScreen,
+    duration: plan.duration > 0 ? plan.duration : estimateSceneDuration(plan.onScreen),
+    background: palette.bg,
+    transitionIn:
+      index === 0 ? "fade" : index % 3 === 0 ? "slideLeft" : index % 3 === 1 ? "slideUp" : "zoomIn",
+    transitionDuration: 0.6,
+    camera: { zoom: index % 2 === 0 ? 1.05 : 1.12, panX: index % 3 === 1 ? 0.02 : 0, panY: 0 },
+    layers,
+    voiceScript: plan.voiceover,
+  };
+}
+
+export function buildDocFromPlan(
+  doc: ProjectDoc,
+  plan: {
+    topic: string;
+    targetSeconds: number;
+    scenes: ScenePlan[];
+  },
+  style: StyleId,
+  type: VideoTypeId,
+  metaIdea?: string,
+): ProjectDoc {
+  const palette = PALETTES[style];
+  doc.canvas = canvasForType(type);
+  const vertical = VERTICAL_TYPES.includes(type);
+  doc.scenes = plan.scenes.map((scenePlan, i) => {
+    const last = i === plan.scenes.length - 1;
+    const planScene: ScenePlan = last && plan.scenes.length > 2 ? { ...scenePlan, kind: "cta" } : scenePlan;
+    return buildSceneFromPlan(planScene, i, palette, vertical);
+  });
+  doc.meta = {
+    idea: metaIdea ?? plan.topic,
+    type,
+    style,
+    plan: plan.scenes,
+  };
   return doc;
 }

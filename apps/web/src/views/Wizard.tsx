@@ -1,14 +1,20 @@
 // المعالج الموجّه: 6 خطوات — الفكرة، النوع، المدة، النمط البصري، الصوت، إنشاء.
 
 import { useRef, useState } from "react";
-import type { AudioTrack, StyleId, VideoTypeId } from "@msaipro/core";
+import type { AudioTrack, ScenePlan, StyleId, VideoTypeId } from "@msaipro/core";
 import {
   DURATIONS,
   VIDEO_TYPES,
   VISUAL_STYLES,
   autoSubtitles,
-  buildDocFromScript,
-  generateArabicScript,
+  buildDocFromPlan,
+  deriveTopic,
+  estimateDurationFromText,
+  extractTitleSafe,
+  planSceneCount,
+  planStoryboard,
+  sanitizeContent,
+  scaleDurations,
   splitScriptIntoLines,
   uid,
 } from "@msaipro/core";
@@ -17,8 +23,38 @@ import { takeWizardInit } from "../store/wizardInit";
 import { ollamaScript } from "../ai/ollama";
 import { putAsset } from "../store/storage";
 import { onDesktop } from "../export/desktop";
+import {
+  applyVoiceover,
+  generateVoiceover,
+  piperAvailable,
+  type VoiceGeneration,
+} from "../voice/voiceover";
 
 const STEP_KEYS = ["stepIdea", "stepType", "stepDuration", "stepStyle", "stepVoice", "generate"] as const;
+
+/** Convert script lines (Ollama or explicit user text) into structured scene plans. */
+function linesToPlans(lines: string[], targetSeconds: number): ScenePlan[] {
+  const count = planSceneCount(targetSeconds);
+  const scenes: ScenePlan[] = [];
+  const seen = new Set<string>();
+  for (const raw of lines) {
+    const line = sanitizeContent(raw.replace(/\s+/g, " ").trim());
+    if (!line || seen.has(line)) continue;
+    seen.add(line);
+    const onScreen = line.length > 90 ? `${line.slice(0, 88).trim()}…` : line;
+    scenes.push({
+      title: extractTitleSafe(line),
+      onScreen,
+      voiceover: line,
+      visual: "يبني من نص السكربت",
+      duration: estimateDurationFromText(line),
+      kind: scenes.length === 0 ? "title" : "point",
+    });
+    if (scenes.length >= count) break;
+  }
+  scaleDurations(scenes, targetSeconds);
+  return scenes;
+}
 
 export function Wizard() {
   const { doc, setDoc, goto, t, ai, showToast } = useApp();
@@ -35,6 +71,8 @@ export function Wizard() {
   const [voiceBlob, setVoiceBlob] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const voiceFileRef = useRef<HTMLInputElement | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState<"idle" | "busy">("idle");
+  const [voiceProgress, setVoiceProgress] = useState("");
 
   const targetSeconds = durationId === "custom"
     ? Math.max(10, Math.min(900, customSeconds))
@@ -42,43 +80,53 @@ export function Wizard() {
 
   const generate = async () => {
     if (!doc) return;
-    if (!subject.trim()) { showToast("اكتب فكرة الفيديو أولاً"); setStep(0); return; }
-    if (!typeId) { showToast("اختر نوع الفيديو"); setStep(1); return; }
-    if (!styleId) { showToast("اختر النمط البصري"); setStep(3); return; }
+    if (!subject.trim()) { showToast("\u0643\u062a\u0628 \u0641\u0643\u0631\u0629 \u0627\u0644\u0641\u064a\u062f\u064a\u0648 \u0623\u0648\u0644\u0627\u064b"); setStep(0); return; }
+    if (!typeId) { showToast("\u0627\u062e\u062a\u0631 \u0646\u0648\u0639 \u0627\u0644\u0641\u064a\u062f\u064a\u0648"); setStep(1); return; }
+    if (!styleId) { showToast("\u0627\u062e\u062a\u0631 \u0627\u0644\u0646\u0645\u0637 \u0627\u0644\u0628\u0635\u0631\u064a"); setStep(3); return; }
     setBusy(true);
     try {
+      const wantsVoice = voiceMode === "male" || voiceMode === "female";
+      const piperUsable = wantsVoice && ai.piperEnabled && onDesktop();
       const typeNameAr = VIDEO_TYPES.find((v) => v.id === typeId)?.nameAr ?? "";
-      let lines: string[] | null = null;
+      let plan: { topic: string; targetSeconds: number; scenes: ScenePlan[] } | null = null;
       let usedAI = false;
 
       if (ai.ollamaEnabled && init.current?.mode !== "text") {
         try {
           showToast(t("aiBusy"));
-          lines = await ollamaScript(
+          const lines = await ollamaScript(
             { url: ai.ollamaUrl, model: ai.ollamaModel || "llama3.1" },
             subject,
             typeNameAr,
-            Math.max(3, Math.min(24, Math.round(targetSeconds / 12))),
+            planSceneCount(targetSeconds),
           );
+          plan = {
+            topic: deriveTopic(subject),
+            targetSeconds,
+            scenes: linesToPlans(lines, targetSeconds),
+          };
           usedAI = true;
         } catch {
-          showToast("تعذر الاتصال بالمحرك المحلي — استخدمنا القوالب الجاهزة بدلاً منه");
+          showToast("\u062a\u0639\u0630\u0651\u0631 \u0627\u0644\u0627\u062a\u0635\u0627\u0644 \u0628\u0627\u0644\u0645\u062d\u0631\u0643 \u0627\u0644\u0645\u062d\u0644\u064a \u2014 \u0627\u0633\u062a\u062e\u062f\u0645\u0646\u0627 \u0627\u0644\u0642\u0648\u0627\u0644\u0628 \u0627\u0644\u062c\u0627\u0647\u0632\u0629 \u0628\u062f\u0644\u0627\u064b \u0645\u0646\u0647");
         }
       }
 
-      if (!lines) {
+      if (!plan) {
         if (init.current?.mode === "text") {
-          lines = splitScriptIntoLines(subject);
+          plan = {
+            topic: subject.split(/[\n\u060c.]/)[0] || subject,
+            targetSeconds,
+            scenes: linesToPlans(splitScriptIntoLines(subject), targetSeconds),
+          };
         } else {
-          lines = splitScriptIntoLines(generateArabicScript(subject, typeId, targetSeconds).lines.join("\n"));
+          plan = planStoryboard(subject, typeId, targetSeconds);
         }
       }
-      if (!lines.length) lines = generateArabicScript(subject, typeId, Math.min(60, targetSeconds)).lines;
 
-      const built = buildDocFromScript(doc, lines, styleId, typeId);
+      const built = buildDocFromPlan(doc, plan, styleId, typeId, subject.trim());
       built.name = name || built.name;
       built.voice = {
-        mode: voiceMode === "none" ? "none" : voiceMode === "upload" ? "upload" : ai.piperEnabled && onDesktop() ? "piper" : "system",
+        mode: voiceMode === "none" ? "none" : voiceMode === "upload" ? "upload" : piperUsable ? "piper" : "system",
         voice: voiceMode === "female" ? "ar_female" : voiceMode === "male" ? "ar_male" : null,
         speed: 1,
       };
@@ -89,7 +137,7 @@ export function Wizard() {
         const track: AudioTrack = {
           id: uid("trk"),
           assetId,
-          name: "تسجيلك الصوتي",
+          name: "\u062a\u0633\u062c\u064a\u0644\u0643 \u0627\u0644\u0635\u0648\u062a\u064a",
           role: "voice",
           startAt: 0,
           inPoint: 0,
@@ -101,18 +149,42 @@ export function Wizard() {
         built.audio.push(track);
       }
 
+      setVoiceStatus(piperUsable ? "busy" : "idle");
+      let voiceResult: VoiceGeneration | null = null;
+      if (built.voice.mode === "piper") {
+        if (!(await piperAvailable())) {
+          voiceResult = null;
+        } else {
+          voiceResult = await generateVoiceover(
+            built.scenes.map((sc) => ({ id: sc.id, voiceScript: sc.voiceScript, plannedDuration: sc.duration })),
+            {
+              model: ai.piperModel,
+              onProgress: (done, total) => setVoiceProgress(`${done}/${total}`),
+            },
+          );
+          if (voiceResult.ok) applyVoiceover(built, voiceResult);
+        }
+      }
+      setVoiceStatus("idle");
+
       built.subtitles = autoSubtitles(built);
       built.subtitleStyle.enabled = true;
 
       setDoc(built);
       goto("storyboard");
-      showToast(`تم إنشاء ${built.scenes.length} مشهداً${usedAI ? " بمساعدة الذكاء الاصطناعي المحلي" : ""}`);
+      if (built.voice.mode === "piper" && !voiceResult) {
+        showToast(t("voiceGenMissing"));
+      } else if (voiceResult && !voiceResult.ok) {
+        showToast(t("voiceGenFailed"));
+      } else if (voiceResult) {
+        showToast(t("voiceGenDone").replace("@n", String(voiceResult.generated)));
+      } else {
+        showToast(t("scenesCreated").replace("@n", String(built.scenes.length)).replace("@ai", usedAI ? t("withLocalAI") : ""));
+      }
     } finally {
       setBusy(false);
     }
   };
-
-  if (!doc) return null;
 
   const next = () => setStep((s) => Math.min(5, s + 1));
   const back = () => setStep((s) => Math.max(0, s - 1));
@@ -246,7 +318,7 @@ export function Wizard() {
         {step < 5 && <button className="btn primary" onClick={next}>{t("next")} →</button>}
         {step === 5 && (
           <button className="btn gold" style={{ fontSize: 17 }} disabled={busy} onClick={() => void generate()}>
-            {busy ? `⏳ ${t("generatingScript")}` : `✨ ${t("generate")}`}
+            {busy ? (voiceStatus === "busy" ? `🎙 ${t("voiceGenBusy")} ${voiceProgress}` : `⏳ ${t("generatingScript")}`) : `✨ ${t("generate")}`}
           </button>
         )}
       </div>
