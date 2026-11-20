@@ -162,12 +162,14 @@ async function exportWebCodecs(doc: ProjectDoc, opts: ExportOptions): Promise<Ex
       });
       const channels = Math.min(2, mix.buffer.numberOfChannels);
       const chunkFrames = 1024;
+      const peakScale = 0.95;
       for (let off = 0; off < mix.buffer.length; off += chunkFrames) {
         if (opts.shouldCancel()) throw new Error("cancelled");
         const n = Math.min(chunkFrames, mix.buffer.length - off);
         const data = new Float32Array(n * channels);
         for (let c = 0; c < channels; c++) {
-          data.set(mix.buffer.getChannelData(c).subarray(off, off + n), c * n);
+          const plane = mix.buffer.getChannelData(c);
+          for (let j = 0; j < n; j++) data[j * channels + c] = plane[off + j] * peakScale;
         }
         const chunk = new AudioData({
           format: "f32",

@@ -565,10 +565,10 @@ export function planSceneCount(targetSeconds: number): number {
   return Math.max(18, Math.min(30, Math.round(s / 17)));
 }
 
-/** Speech-rate duration estimate: Arabic voice-over ≈ 2.3 words/sec + breathing room. */
+/** Speech-rate duration estimate: calibrated on real Piper/كريم output (≈1.334 words/sec) + safety margin. */
 export function estimateDurationFromText(text: string): number {
   const words = text.split(/\s+/).filter(Boolean).length;
-  return Math.max(2.2, 0.8 + words / 2.3);
+  return Math.max(2.2, 0.8 + words / 1.5);
 }
 
 /** Extract the actual topic from the user idea, discarding all production instructions. */

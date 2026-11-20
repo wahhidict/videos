@@ -17,9 +17,9 @@ export type VoiceFitStrategy =
   | { action: "adjust"; speedRatio: number; text: string }
   | { action: "shorten"; speedRatio: number; text: string; removedWords: number };
 
-/** حساب كلمات/ثانية تقريبي: العربي ≈ 2.3 كلمة/ث بصوت Piper متوسط. */
+/** كلمات/ثانية تقريبية: مقاسة فعلياً على Piper/كريم المتوسطة (283 كلمة/212.2 ث ≈ 1.334) بهامش أمان. */
 export function estimateWps(text: string): number {
-  return 2.3;
+  return 1.5;
 }
 
 /**
@@ -40,6 +40,40 @@ export function planVoiceFit(input: VoiceFitInput): VoiceFitStrategy {
   if (words.length <= maxWords) return { action: "adjust", speedRatio: MAX_VOICE_SPEEDUP, text: input.text };
   const kept = keepEssentialWords(words, maxWords);
   return { action: "shorten", speedRatio: MAX_VOICE_SPEEDUP, text: kept.text, removedWords: words.length - kept.text.split(/\s+/).filter(Boolean).length };
+}
+
+export type VoicePlacement =
+  | { action: "place" }
+  | { action: "pace"; lengthScale: number }
+  | { action: "shorten"; text: string; lengthScale: number };
+
+/**
+ * قرار وضع تعليق مقاس فعلياً (بعد توليد WAV طبيعي وقيس مدته):
+ * - place: يوضع كما هو.
+ * - pace: إعادة توليد بـ lengthScale محدود ضمن السقف 1.25x تقريباً.
+ * - shorten: تقصير النص عبر planVoiceFit مع بطء آمن.
+ */
+export function planVoicePlacement(text: string, naturalSeconds: number, windowSeconds: number): VoicePlacement {
+  const natural = Math.max(0.05, naturalSeconds);
+  const window = Math.max(0.4, windowSeconds);
+  if (natural <= window + 0.05) return { action: "place" };
+  const ratio = natural / window;
+  if (ratio <= MAX_VOICE_SPEEDUP) {
+    return { action: "pace", lengthScale: Math.max(SPEED_FLOOR, window / natural) };
+  }
+  const wordsCount = text.split(/\s+/).filter(Boolean).length;
+  const measuredWps = wordsCount / natural;
+  const fit = planVoiceFit({ text, windowSeconds: window, wordsPerSecond: measuredWps });
+  if (fit.action !== "shorten") return { action: "place" };
+  return { action: "shorten", text: fit.text, lengthScale: Math.max(SPEED_FLOOR, 1 / fit.speedRatio) };
+}
+
+/** تقليم النص إلى حد كلمات محدد مع الحفاظ على حدود الجمل — تُستخدم في حلقة التقصير المقاسة. */
+export function trimToWordBudget(text: string, maxWords: number): string {
+  if (maxWords < 1) return "";
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return words.join(" ");
+  return keepEssentialWords(words, maxWords).text;
 }
 
 /** تقصير محلي: حذف جمل/شطر ثانوية أول السطر الثلاسي — دون تشويه قواعد العربية. */
@@ -138,8 +172,33 @@ export function pcmPeakDbfs(pcm: Float32Array): { peakDbfs: number; clipped: boo
  * خلط مسارات متعددة على خط زمني واحد.
  * music/sfx تعاني ducking تلقائياً مقابل مسارات voice المتزامنة.
  */
+/**
+ * إعادة أخذ عينات خطية لمقطع PCM.
+ * لا تخلط mixTracks مسارات بمعدلات مختلفة: يجب أن تكون كل المدخلات بمعدل الإخراج نفسه
+ * وإلا صار الصوت مضغوطاً/متمدداً بالنسبة بين معدل decode ومعدل التصدير.
+ */
+export function resampleLinear(pcm: Float32Array, fromRate: number, toRate: number): Float32Array {
+  if (fromRate === toRate || fromRate <= 0 || toRate <= 0 || pcm.length === 0) return pcm;
+  const step = fromRate / toRate;
+  const out = new Float32Array(Math.max(1, Math.round(pcm.length / step)));
+  for (let i = 0; i < out.length; i += 1) {
+    const pos = i * step;
+    const i0 = Math.floor(pos);
+    const frac = pos - i0;
+    const s0 = pcm[Math.min(i0, pcm.length - 1)];
+    const s1 = pcm[Math.min(i0 + 1, pcm.length - 1)];
+    out[i] = s0 + (s1 - s0) * frac;
+  }
+  return out;
+}
+
 export function mixTracks(trackInputs: MixTrackInput[], totalSeconds: number, duckOptions: DuckOptions = {}): MixResult {
   const sampleRate = trackInputs[0]?.sampleRate ?? 48000;
+  const inputs = trackInputs.map((track) =>
+    track.sampleRate === sampleRate
+      ? track
+      : { ...track, pcm: resampleLinear(track.pcm, track.sampleRate, sampleRate), sampleRate },
+  );
   const totalSamples = Math.max(1, Math.ceil(totalSeconds * sampleRate));
   const mixed = new Float32Array(totalSamples);
   const voices = trackInputs.filter((t) => t.role === "voice");
@@ -151,7 +210,7 @@ export function mixTracks(trackInputs: MixTrackInput[], totalSeconds: number, du
   }
   const gain = voiceSegments.length ? duckGainEnvelope(totalSamples, sampleRate, voiceSegments, duckOptions) : null;
 
-  for (const track of trackInputs) {
+  for (const track of inputs) {
     const offset = Math.max(0, Math.floor(track.startAt * sampleRate));
     for (let i = 0; i < track.pcm.length; i += 1) {
       const out = offset + i;

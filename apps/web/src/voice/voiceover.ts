@@ -1,7 +1,7 @@
 // توليد تعليق صوتي عربي حقيقي لكل مشهد عبر Piper، قياس مدة WAV الفعلية،
 // وربط كل جزء صوتي بمشهده في الـ Timeline.
 
-import { uid, wavDurationSeconds, type AudioTrack, type ProjectDoc } from "@msaipro/core";
+import { planVoiceFit, planVoicePlacement, SPEED_FLOOR, trimToWordBudget, uid, wavDurationSeconds, type AudioTrack, type ProjectDoc } from "@msaipro/core";
 import { putAsset } from "../store/storage";
 import { onDesktop } from "../export/desktop";
 
@@ -55,8 +55,77 @@ export interface VoiceSceneRequest {
 
 /** Fit speech inside the planned scene window: headroom reserved at both ends. */
 const SPEECH_HEADROOM = 0.65;
-const MAX_SPEEDUP = 2.5;
 
+/**
+ * Piper length_scale response measured on kareem: dur(ls) ∝ ls^~0.65, so an ideal
+ * collapse ratio (window/dur) needs squaring to actually reach the window.
+ * The floor SPEED_FLOOR keeps effective speedup within the hard 1.25x cap.
+ */
+const piperLengthScaleFor = (dur: number, window: number): number =>
+  Math.max(SPEED_FLOOR, Math.min(1, Math.pow(window / dur, 2)));
+
+/** Measured fitting loop: pace with real feedback, then shorten as a last resort. Never exceeds floor/speedup caps. */
+async function fitSpeech(
+  text: string,
+  naturalBlob: Blob,
+  naturalDur: number,
+  window: number,
+  speakOnce: (text: string, lengthScale?: number) => Promise<{ blob: Blob | null; dur: number }>,
+): Promise<{ blob: Blob; dur: number } | null> {
+  if (naturalDur <= window + 0.05) return null;
+  const placement = planVoicePlacement(text, naturalDur, window);
+  if (placement.action === "shorten") {
+    return shortenLoop(placement.text, text, naturalBlob, naturalDur, window, speakOnce);
+  }
+  let best = { blob: naturalBlob, dur: naturalDur };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const lengthScale = piperLengthScaleFor(best.dur, window);
+    const paced = await speakOnce(text, lengthScale);
+    if (!paced.blob || paced.dur <= 0.2 || paced.dur >= best.dur) break;
+    best = { blob: paced.blob, dur: paced.dur };
+    if (best.dur <= window + 0.05) return best;
+  }
+  if (best.dur <= window + 0.05) return best;
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const fit = planVoiceFit({ text, windowSeconds: window * 0.9, wordsPerSecond: words / naturalDur });
+  if (fit.action === "shorten") {
+    const rescue = await shortenLoop(fit.text, text, naturalBlob, naturalDur, window, speakOnce);
+    if (rescue) return rescue;
+  }
+  return null;
+}
+
+/** Shorten with measured feedback: re-fit up to 3 rounds using each round's measured wps. */
+async function shortenLoop(
+  startText: string,
+  fullText: string,
+  naturalBlob: Blob,
+  naturalDur: number,
+  window: number,
+  speakOnce: (text: string, lengthScale?: number) => Promise<{ blob: Blob | null; dur: number }>,
+): Promise<{ blob: Blob; dur: number } | null> {
+  const fullWords = fullText.split(/\s+/).filter(Boolean).length;
+  let curText = startText;
+  let best = { blob: naturalBlob, dur: naturalDur };
+  for (let round = 0; round < 3; round += 1) {
+    const spoken = await speakOnce(curText, SPEED_FLOOR);
+    const measured = spoken.blob && spoken.dur > 0.2 ? spoken.dur : 0;
+    if (measured > 0 && (best.dur === naturalDur || measured < best.dur)) {
+      best = { blob: spoken.blob!, dur: measured };
+    }
+    if (best.dur <= window + 0.05) return best;
+    const words = curText.split(/\s+/).filter(Boolean).length;
+    if (words <= 4) break;
+    const barely = measured > 0 ? measured : words / (naturalDur / fullWords);
+    const wpsAtFloor = words / barely;
+    const allowed = Math.max(4, Math.floor(window * wpsAtFloor) - 1);
+    if (allowed >= words) break;
+    curText = trimToWordBudget(curText, allowed);
+  }
+  return best.dur < naturalDur ? best : null;
+}
+
+/** Generate a real WAV per scene voice-over. Never fabricates success. */
 export async function generateVoiceover(
   scenes: VoiceSceneRequest[],
   opts: { model?: string; onProgress?: (done: number, total: number) => void } = {},
@@ -100,13 +169,16 @@ export async function generateVoiceover(
       const planned = scene.plannedDuration ?? 0;
       if (planned > 0) {
         const window = Math.max(1.6, planned - SPEECH_HEADROOM);
-        if (dur > window + 0.05) {
-          const speedup = Math.min(MAX_SPEEDUP, Math.max(1.0, (dur + 0.15) / window));
-          const fast = await speakOnce(scene.voiceScript, 1 / speedup);
-          if (fast.blob && fast.dur > 0.2 && fast.dur < dur) {
-            blob = fast.blob;
-            dur = fast.dur;
-          }
+        const fit = await fitSpeech(
+          scene.voiceScript,
+          blob!,
+          dur,
+          window,
+          speakOnce,
+        );
+        if (fit) {
+          blob = fit.blob;
+          dur = fit.dur;
         }
       }
       const assetId = uid("voice");

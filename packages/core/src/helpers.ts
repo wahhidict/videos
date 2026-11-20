@@ -1,6 +1,6 @@
 export function estimateSceneDuration(text: string, min = 3.5, max = 14): number {
   const words = text.split(/\s+/).filter(Boolean).length;
-  return Math.max(min, Math.min(max, 1.6 + words / 2.2));
+  return Math.max(min, Math.min(max, 1.6 + words / 1.5));
 }
 
 export function extractTitleSafe(line: string): string {

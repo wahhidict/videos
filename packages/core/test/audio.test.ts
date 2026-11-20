@@ -7,8 +7,11 @@ import {
   normalizeToLimit,
   pcmPeakDbfs,
   pcmTo16,
+  resampleLinear,
   planSfxPlacements,
   planVoiceFit,
+  planVoicePlacement,
+  trimToWordBudget,
   sceneStartTimes,
 } from "../src/audio";
 import { encodeWavMono, wavDurationSeconds } from "../src/wav";
@@ -42,6 +45,56 @@ describe("planVoiceFit", () => {
     }
     const wordsAfter = fit.text.split(/\s+/).filter(Boolean).length;
     expect(wordsAfter).toBeLessThan(text.split(/\s+/).filter(Boolean).length);
+  });
+});
+
+describe("trimToWordBudget", () => {
+  it("نص أقصر من الحد يبقى سليماً", () => {
+    expect(trimToWordBudget("واحد اثنين", 5)).toBe("واحد اثنين");
+  });
+
+  it("أطول من الحد: يُقلَّم إلى حد الكلمات دون كلمات معلّقة", () => {
+    const text = "الجملة الأولى هنا. والجملة الثانية أطول قليلاً";
+    const trimmed = trimToWordBudget(text, 4);
+    expect(trimmed.split(/\s+/).filter(Boolean).length).toBeLessThanOrEqual(4);
+    expect(trimmed).not.toMatch(/[,،]$/);
+  });
+
+  it("حد أصغر من كلمة يعطي نصاً فارغاً", () => {
+    expect(trimToWordBudget("نص", 0)).toBe("");
+  });
+});
+
+describe("planVoicePlacement", () => {
+  it("طبيعي داخل النافذة: يبقى كما هو بلا إعادة توليد", () => {
+    expect(planVoicePlacement("نص قصير", 6, 8)).toEqual({ action: "place" });
+  });
+
+  it("فاض قليلاً: تسريع محدود ضمن سقف 1.25x عبر lengthScale", () => {
+    const placement = planVoicePlacement("نص", 12, 10);
+    expect(placement.action).toBe("pace");
+    if (placement.action === "pace") {
+      expect(placement.lengthScale).toBeCloseTo(10 / 12, 5);
+      expect(placement.lengthScale).toBeGreaterThanOrEqual(0.8);
+    }
+  });
+
+  it("فاض كثيراً: تقصير النص مع بطء آمن لا يتجاوز السقف", () => {
+    const text = Array.from({ length: 40 }, () => "كلمة").join(" ");
+    const placement = planVoicePlacement(text, 30, 10);
+    expect(placement.action).toBe("shorten");
+    if (placement.action === "shorten") {
+      expect(placement.text.split(/\s+/).filter(Boolean).length).toBeLessThan(40);
+      expect(placement.lengthScale).toBeGreaterThanOrEqual(0.8);
+      expect(1 / placement.lengthScale).toBeLessThanOrEqual(MAX_VOICE_SPEEDUP + 1e-9);
+    }
+  });
+
+  it("أرضية البطء 0.8 تُحترم حتى لو الفيض هائلاً", () => {
+    const placement = planVoicePlacement("نص", 100, 10);
+    if (placement.action === "shorten") {
+      expect(placement.lengthScale).toBeGreaterThanOrEqual(0.8);
+    }
   });
 });
 
@@ -174,5 +227,49 @@ describe("توزيع مؤثرات خطة LLM على المسارات", () => {
     const plans = Array.from({ length: 20 }, () => ({ sfx: "click" as string }));
     const durations = Array.from({ length: 20 }, () => 5);
     expect(planSfxPlacements(plans, durations, 4)).toHaveLength(4);
+  });
+});
+
+describe("resampleLinear", () => {
+  it("نفس المعدل: يعيد المقطع كما هو", () => {
+    const pcm = new Float32Array([0, 0.5, 1, -0.5]);
+    expect(resampleLinear(pcm, 48000, 48000)).toBe(pcm);
+  });
+
+  it("44100 → 48000: يحفظ الطول الزمني والتردد", () => {
+    const sr = 44100;
+    const osc = new Float32Array(sr).map((_, i) => Math.sin((2 * Math.PI * 440 * i) / sr));
+    const up = resampleLinear(osc, sr, 48000);
+    expect(up.length).toBeCloseTo(48000, -1);
+    let zc = 0;
+    for (let i = 1; i < up.length; i += 1) if ((up[i - 1] < 0) !== (up[i] < 0)) zc += 1;
+    const freqEst = (zc / 2) * (48000 / up.length);
+    expect(Math.abs(freqEst - 440)).toBeLessThan(4);
+  });
+
+  it("48000 → 44100: يعيد الطول النسبي الصحيح", () => {
+    const pcm = new Float32Array(48000).fill(0.3);
+    const down = resampleLinear(pcm, 48000, 44100);
+    expect(down.length).toBe(44100);
+    expect(down[22000]).toBeCloseTo(0.3, 5);
+  });
+});
+
+describe("mixTracks مع معدلات متعددة", () => {
+  it("يمزج مسارات بمعدلات مختلفة دون تحريف الساعة الزمنية", () => {
+    const sr = 44100;
+    const osc = new Float32Array(sr).map((_, i) => Math.sin((2 * Math.PI * 440 * i) / sr));
+    const { pcm, sampleRate } = mixTracks(
+      [
+        { pcm: osc, sampleRate: sr, startAt: 0, volume: 1, fadeIn: 0, fadeOut: 0, role: "voice" },
+        { pcm: new Float32Array(48000).fill(0.1), sampleRate: 48000, startAt: 0, volume: 1, fadeIn: 0, fadeOut: 0, role: "sfx" },
+      ],
+      1,
+    );
+    expect(sampleRate).toBe(44100);
+    let zc = 0;
+    for (let i = 1; i < Math.floor(sampleRate * 0.25); i += 1) if ((pcm[i - 1] < 0) !== (pcm[i] < 0)) zc += 1;
+    const freqEst = (zc / 2) * (44100 / Math.floor(sampleRate * 0.25));
+    expect(Math.abs(freqEst - 440)).toBeLessThan(6);
   });
 });
