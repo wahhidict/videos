@@ -1,4 +1,5 @@
-import type { ChartLayer, ImageLayer, MotionPresetId, ShapeLayer, TextLayer } from "@msaipro/core";
+import { useState } from "react";
+import type { ChartLayer, ImageLayer, Keyframe, Layer, MotionPresetId, ShapeLayer, TextLayer } from "@msaipro/core";
 import {
   BACKGROUND_STYLES,
   MOTION_PRESETS,
@@ -163,12 +164,14 @@ export function PropertiesPanel({ advanced }: { advanced: boolean }) {
 }
 
 function MotionFields({
+  layer,
   anim,
   animDuration,
   animDelay,
   patchLayer,
   advanced,
 }: {
+  layer: Layer;
   anim: MotionPresetId;
   animDuration: number;
   animDelay: number;
@@ -197,9 +200,83 @@ function MotionFields({
             <input type="number" min={0} max={10} step={0.1} value={animDelay}
               onChange={(e) => patchLayer({ animDelay: Number(e.target.value) })} />
           </div>
+          <KeyframesFields layer={layer} patchLayer={patchLayer} />
         </>
       )}
     </>
+  );
+}
+
+const KF_EASE_OPTIONS: { value: string; label: string }[] = [
+  { value: "linear", label: "خطي" },
+  { value: "easeIn", label: "تسارع" },
+  { value: "easeOut", label: "تباطؤ" },
+  { value: "easeInOut", label: "ناعم" },
+  { value: "easeOutBack", label: "ارتداد خفيف" },
+];
+
+function KeyframesFields({ layer, patchLayer }: { layer: Layer; patchLayer: (p: Record<string, unknown>) => void }) {
+  const { doc, sceneIndex, playhead, t } = useApp();
+  const [open, setOpen] = useState(false);
+  if (!doc) return null;
+  const scene = doc.scenes[sceneIndex];
+  if (!scene) return null;
+  const sceneStart = doc.scenes.slice(0, sceneIndex).reduce((a, sc) => a + sc.duration, 0);
+  const local = Math.max(0, Math.min(scene.duration, playhead - sceneStart));
+  const kfs = layer.keyframes ?? [];
+
+  const setKfs = (next: Keyframe[]) => patchLayer({ keyframes: next });
+  const addKeyframe = () => {
+    setKfs([...kfs, { t: Math.round(local * 10) / 10, x: layer.x, y: layer.y, scale: 1, rot: layer.rot, opacity: layer.opacity, ease: "easeOut" }].sort((a, b) => a.t - b.t));
+  };
+  const patchKf = (i: number, patch: Partial<Keyframe>) => {
+    setKfs(kfs.map((kf, idx) => (idx === i ? { ...kf, ...patch } : kf)));
+  };
+  const removeKf = (i: number) => {
+    setKfs(kfs.filter((_, idx) => idx !== i));
+  };
+
+  const numField = (label: string, value: number, onChange: (v: number) => void, step = 0.05) => (
+    <label style={{ fontSize: 11 }}>
+      {label}
+      <input type="number" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))}
+        style={{ width: 64, fontSize: 11 }} />
+    </label>
+  );
+
+  return (
+    <div style={{ border: "1px solid var(--border, #3333)", borderRadius: 10, padding: "8px 10px", marginTop: 8 }}>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+        <button className="btn small" onClick={() => setOpen(!open)}>
+          {open ? "▾" : "▸"} {t("keyframes")} ({kfs.length})
+        </button>
+        <button className="btn small primary" onClick={addKeyframe}>+ {t("addKeyAtPlayhead")}</button>
+      </div>
+      {open && kfs.length === 0 && (
+        <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+          لا مفاتيح بعد — حرك رأس التشغيل داخل المشهد ثم أضف مفتاحاً بقيم الطبقة الحالية.
+        </p>
+      )}
+      {open && kfs.map((kf, i) => (
+        <div key={i} style={{ borderTop: "1px solid var(--border, #3333)", marginTop: 8, paddingTop: 8 }}>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 11 }}>
+            {numField("اللحظة (ث)", kf.t, (v) => patchKf(i, { t: v }), 0.1)}
+            {numField("س×", kf.x ?? 0, (v) => patchKf(i, { x: v }))}
+            {numField("ص×", kf.y ?? 0, (v) => patchKf(i, { y: v }))}
+            {numField("مقياس", kf.scale ?? 1, (v) => patchKf(i, { scale: v }))}
+            {numField("دوران", kf.rot ?? 0, (v) => patchKf(i, { rot: v }), 1)}
+            {numField("شفافية", kf.opacity ?? 1, (v) => patchKf(i, { opacity: v }))}
+            <select value={kf.ease ?? "linear"} onChange={(e) => patchKf(i, { ease: e.target.value })}
+              style={{ fontSize: 11 }}>
+              {KF_EASE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <button className="btn small danger" onClick={() => removeKf(i)}>{t("removeKeyframe")}</button>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -245,7 +322,7 @@ function TextProps({
           ))}
         </div>
       </div>
-      <MotionFields anim={layer.anim} animDuration={layer.animDuration} animDelay={layer.animDelay} patchLayer={patchLayer} advanced={advanced} />
+      <MotionFields layer={layer} anim={layer.anim} animDuration={layer.animDuration} animDelay={layer.animDelay} patchLayer={patchLayer} advanced={advanced} />
       <div className="prop-row">
         <label>الشفافية ({Math.round(layer.opacity * 100)}%)</label>
         <input type="range" min={0} max={1} step={0.05} value={layer.opacity}
@@ -305,7 +382,7 @@ function ShapeProps({
         <label>تغيير اللون</label>
         <input type="color" value={layer.fill} onChange={(e) => patchLayer({ fill: e.target.value })} />
       </div>
-      <MotionFields anim={layer.anim} animDuration={layer.animDuration} animDelay={layer.animDelay} patchLayer={patchLayer} advanced={advanced} />
+      <MotionFields layer={layer} anim={layer.anim} animDuration={layer.animDuration} animDelay={layer.animDelay} patchLayer={patchLayer} advanced={advanced} />
       {advanced && (
         <div className="prop-row">
           <label>العرض ({Math.round(layer.w * 100)}%)</label>
@@ -352,7 +429,7 @@ function ImageProps({
           ))}
         </div>
       </div>
-      <MotionFields anim={layer.anim} animDuration={layer.animDuration} animDelay={layer.animDelay} patchLayer={patchLayer} advanced={advanced} />
+      <MotionFields layer={layer} anim={layer.anim} animDuration={layer.animDuration} animDelay={layer.animDelay} patchLayer={patchLayer} advanced={advanced} />
       {advanced && (
         <div className="prop-row">
           <label>العرض ({Math.round(layer.w * 100)}%)</label>
@@ -424,7 +501,7 @@ function ChartProps({
           + قيمة جديدة
         </button>
       </div>
-      <MotionFields anim={layer.anim} animDuration={layer.animDuration} animDelay={layer.animDelay} patchLayer={patchLayer} advanced={advanced} />
+      <MotionFields layer={layer} anim={layer.anim} animDuration={layer.animDuration} animDelay={layer.animDelay} patchLayer={patchLayer} advanced={advanced} />
       {advanced && (
         <div className="prop-row">
           <label>العرض ({Math.round(layer.w * 100)}%)</label>

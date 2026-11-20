@@ -2,6 +2,14 @@
 
 سجل المراحل على فرع العمل `vibe/motion-studio-ai-pro-4e7d27`. لا يُدمج في main إلا بموافقة المستخدم الصريحة.
 
+## المرحلة ز — Keyframes: تحريك العناصر وحركة الكاميرا
+- `types.ts`: `Keyframe` (t/x/y/scale/rot/opacity/offsetX/offsetY/blur/ease) على `BaseLayer` + `CameraKeyframe` على `scene.camera`.
+- `keyframes.ts` (جديد): `interpolateTrack` (قبل/بعد الحدود، فرز خارج الترتيب، lerp مع مِنحنى مفتاح النهاية: linear/easeIn/easeOut/easeInOut/easeOutBack)، `evalKeyframes` لكل خاصية على حدة، `evalCameraKeyframes`.
+- `presets.ts`: `evalTransform` يطبّق المفاتيح فوق الـ preset (opacity→alpha، روت مطلق عبر absRot، إزاحات نسبية → px بأبعاد اللوحة، x/y → effX/effY)، و`evalCamera` يقفز إلى مفاتيح الكاميرا عند وجودها (أساسية جزئية مدعومة).
+- `renderer.ts`: صالح للرِندر الحروج: موضع فعّال للطبقة (effX/effY) في التحويل والمقص + دوران مطلق للعنصر.
+- واجهة: محرر إطارات مفاتيح عربي في لوحة الخصائص (وضع متقدم): مفتاح عند رأس التشغيل بقيم الطبقة الحالية، تحرير لكل حقل، منحنيات تسارع، حذف.
+- 13 اختباراً (الإجمالي core 170).
+
 ## المرحلة و — الصوت: مؤثرات الخطة LLM على الخط الزمني
 - `types.ts`/`script.ts`: حقول `sfx`/`transition`/`cameraMove` اختيارية في `ScenePlan` وصفوف `meta.plan` — تصل من مخطط LLM إلى المستند المحفوظ (core 157 اختباراً بعد إضافة 8؛ كان 149).
 - `audio.ts`: `sceneStartTimes` + `PLAN_SFX_IDS` + `planSfxDuration` + `planSfxPlacements`: توزيع حقل `sfx` لكل مشهد على مسارات فعلية — تجاهل none/خارج القاموس، بناء داخل المشهد مع تقديم 0.2ث، كتم التكرار المتلاحق قصيراً (<3ث)، سقف 10 مواضع.

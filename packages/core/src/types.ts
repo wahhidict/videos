@@ -58,6 +58,29 @@ export interface FontSpec {
   color: string;
 }
 
+export interface Keyframe {
+  /** لحظة داخل المشهد بالثواني. */
+  t: number;
+  /** قيم مُحرَّكة اختيارية — ما يُذكر هو ما يُوضّع بين المفاتيح. */
+  x?: number;
+  y?: number;
+  scale?: number;
+  rot?: number;
+  opacity?: number;
+  offsetX?: number;
+  offsetY?: number;
+  blur?: number;
+  ease?: string;
+}
+
+export interface CameraKeyframe {
+  t: number;
+  zoom?: number;
+  panX?: number;
+  panY?: number;
+  ease?: string;
+}
+
 export interface BaseLayer {
   id: string;
   name: string;
@@ -70,6 +93,8 @@ export interface BaseLayer {
   animDuration: number;
   animDelay: number;
   rot: number; // degrees
+  /** مفاتيح تحريك اختيارية — تتجاوز الـ preset. */
+  keyframes?: Keyframe[];
 }
 
 export interface TextLayer extends BaseLayer {
@@ -120,7 +145,7 @@ export interface Scene {
   background: BackgroundSpec;
   transitionIn: SceneTransitionId;
   transitionDuration: number;
-  camera: { zoom: number; panX: number; panY: number };
+  camera: { zoom: number; panX: number; panY: number; keyframes?: CameraKeyframe[] };
   layers: Layer[];
   voiceScript: string;
 }

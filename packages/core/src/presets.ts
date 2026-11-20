@@ -5,6 +5,7 @@ import type {
   Scene,
   SceneTransitionId,
 } from "./types";
+import { evalCameraKeyframes, evalKeyframes } from "./keyframes";
 import {
   easeOutBack,
   easeOutBounce,
@@ -22,6 +23,11 @@ export interface LayerTransform {
   offsetX: number; // px, already scaled to canvas
   offsetY: number;
   blur: number; // px
+  /** موضع فعّال من مفاتيح (نسبة 0..1) — يُستخدم بدل layer.x/y عند وجوده. */
+  effX?: number;
+  effY?: number;
+  /** دوران مطلق من مفاتيح — يُستخدم بدل layer.rot + tf.rot عند وجوده. */
+  absRot?: number;
 }
 
 export interface MotionPresetDef {
@@ -191,6 +197,17 @@ export function evalTransform(
   const preset = getPreset(layer.anim);
   const patch = preset.apply(layer, tLocal, canvasW, canvasH);
   const merged = { ...DEFAULT_TRANSFORM, ...patch };
+  const kf = evalKeyframes(layer, tLocal);
+  if (kf) {
+    if (typeof kf.opacity === "number") merged.alpha = Math.max(0, Math.min(1, kf.opacity));
+    if (typeof kf.scale === "number") merged.scale = Math.max(0.001, kf.scale);
+    if (typeof kf.rot === "number") merged.absRot = kf.rot;
+    if (typeof kf.offsetX === "number") merged.offsetX = kf.offsetX * canvasW;
+    if (typeof kf.offsetY === "number") merged.offsetY = kf.offsetY * canvasH;
+    if (typeof kf.blur === "number") merged.blur = Math.max(0, kf.blur);
+    if (typeof kf.x === "number") merged.effX = kf.x;
+    if (typeof kf.y === "number") merged.effY = kf.y;
+  }
   if (merged.clipX > 1) merged.clipX = 1;
   if (merged.clipX < 0) merged.clipX = 0;
   if (merged.scale <= 0) merged.scale = 0.001;
@@ -206,6 +223,14 @@ export interface CameraState {
 }
 
 export function evalCamera(scene: Scene, tLocal: number): CameraState {
+  const camKf = evalCameraKeyframes(scene.camera, tLocal);
+  if (camKf) {
+    return {
+      zoom: Math.max(0.1, camKf.zoom ?? scene.camera.zoom),
+      panX: camKf.panX ?? 0,
+      panY: camKf.panY ?? 0,
+    };
+  }
   const p = easeOutCubic(progressAt(tLocal, 0, Math.max(0.5, scene.duration)));
   return {
     zoom: 1 + (scene.camera.zoom - 1) * p,

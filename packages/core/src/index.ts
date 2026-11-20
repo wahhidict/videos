@@ -1,5 +1,6 @@
 export * from "./types";
 export * from "./easing";
+export * from "./keyframes";
 export * from "./presets";
 export * from "./renderer";
 export * from "./subtitles";

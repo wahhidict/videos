@@ -465,11 +465,14 @@ function drawScene(
   for (const layer of scene.layers) {
     const t = tLocal - layer.startAt;
     const tf = evalTransform(layer, t, w, h);
+    const effX = tf.effX ?? layer.x;
+    const effY = tf.effY ?? layer.y;
+    const drawLayer = (tf.effX !== undefined || tf.effY !== undefined) ? { ...layer, x: effX, y: effY } : layer;
     ctx.save();
-    const cx = layer.x * w + (layer.w * w) / 2 + tf.offsetX;
-    const cy = layer.y * h + (layer.kind === "text" ? 0 : layer.w * w * 0.15) + tf.offsetY;
+    const cx = effX * w + (layer.w * w) / 2 + tf.offsetX;
+    const cy = effY * h + (layer.kind === "text" ? 0 : layer.w * w * 0.15) + tf.offsetY;
     ctx.translate(cx, cy);
-    ctx.rotate(((tf.rot + layer.rot) * Math.PI) / 180);
+    ctx.rotate(((tf.absRot ?? tf.rot + layer.rot) * Math.PI) / 180);
     ctx.scale(tf.scale, tf.scale);
     ctx.translate(-cx, -cy);
     ctx.globalAlpha = Math.max(0, Math.min(1, tf.alpha * layer.opacity));
@@ -482,21 +485,21 @@ function drawScene(
     }
     if (clipX < 1) {
       ctx.beginPath();
-      ctx.rect(layer.x * w - w, layer.y * h - h, (layer.w * w + 2 * w) * clipX, h * 3);
+      ctx.rect(effX * w - w, effY * h - h, (layer.w * w + 2 * w) * clipX, h * 3);
       ctx.clip();
     }
     switch (layer.kind) {
       case "text":
-        drawText(ctx, pass, layer, clipX);
+        drawText(ctx, pass, drawLayer as typeof layer, clipX);
         break;
       case "shape":
-        drawShape(ctx, pass, layer);
+        drawShape(ctx, pass, drawLayer as typeof layer);
         break;
       case "image":
-        drawImage(ctx, pass, layer, hooks);
+        drawImage(ctx, pass, drawLayer as typeof layer, hooks);
         break;
       case "chart":
-        drawChart(ctx, pass, layer, t);
+        drawChart(ctx, pass, drawLayer as typeof layer, t);
         break;
     }
     ctx.restore();
