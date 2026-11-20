@@ -30,6 +30,14 @@ async function connectLogs(onLog: (s: string) => void): Promise<() => void> {
   return un;
 }
 
+export interface ToolProgress {
+  tool: string;
+  step: string;
+  pct: number;
+  done?: boolean;
+  error?: boolean;
+}
+
 export function installDesktopBridge(): void {
   if ((globalThis as unknown as Record<string, unknown>).__MSAI_DESKTOP__) return;
   const g = tauri();
@@ -73,6 +81,21 @@ export function installDesktopBridge(): void {
       } finally {
         un();
       }
+    },
+    installTool: async (tool: string): Promise<boolean> => {
+      try {
+        return (await invoke("install_tool", { tool })) === true;
+      } catch {
+        return false;
+      }
+    },
+    onToolProgress: async (cb: (p: ToolProgress) => void): Promise<() => void> => {
+      if (!g?.event?.listen) return () => undefined;
+      const un = await g.event.listen("tool-progress", (e) => cb((e.payload ?? {}) as ToolProgress));
+      return un;
+    },
+    openToolsFolder: async (): Promise<void> => {
+      try { await invoke("open_tools_folder"); } catch { /* ignore */ }
     },
     pathExists: async (path: string): Promise<boolean> => true,
   };

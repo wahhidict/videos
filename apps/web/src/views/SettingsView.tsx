@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useApp } from "../store/appState";
 import { detectOllama, listOllamaModels } from "../ai/ollama";
-import { onDesktop } from "../export/desktop";
 import { formatBytes } from "@msaipro/core";
+import { ToolsManager } from "../components/ToolsManager";
 
 export function SettingsView() {
   const { ai, setAI, lang, setLang, t, showToast, isDesktop, goto } = useApp();
@@ -95,50 +95,9 @@ export function SettingsView() {
         )}
       </div>
 
-      <div className="ai-card">
-        <div className="head">
-          <b>{t("piperTitle")}</b>
-          <span className={`badge ${ai.piperEnabled ? "ok" : "off"}`}>{ai.piperEnabled ? `✓ ${t("detected")}` : t("notDetected")}</span>
-          <span style={{ flex: 1 }} />
-          <label className="chip-row" style={{ gap: 6 }}>
-            <span className="muted" style={{ fontSize: 13 }}>{t("aiEnabled")}</span>
-            <input type="checkbox" checked={ai.piperEnabled} onChange={(e) => patchAI({ piperEnabled: e.target.checked })} />
-          </label>
-        </div>
-        <div className="desc">توليد تعليق صوتي عربي محلي من ملفات نماذج Piper الصوتية (صوت رجالي/نسائي عربي، حوالي 60 م.ب لكل صوت).</div>
-        <div className="kv"><span>{t("modelSize")}:</span> <b>≈ 60 م.ب لكل صوت</b></div>
-        <div className="kv"><span>{t("requirements")}:</span> <b>أي حاسوب حديث — التشغيل خلال ثوانٍ</b></div>
-        <div className="row" style={{ marginTop: 12 }}>
-          <label style={{ fontSize: 13.5, color: "var(--muted)" }}>{t("aiModel")}
-            <input type="text" placeholder="ar_JO-kareem" value={ai.piperModel} onChange={(e) => patchAI({ piperModel: e.target.value })} style={{ width: 200 }} />
-          </label>
-          {!isDesktop && <span className="muted" style={{ fontSize: 13 }}>⚠ متاح فقط في نسخة ويندوز المتكاملة مع نظامك.</span>}
-          <button
-            className="btn small"
-            onClick={async () => {
-              if (!onDesktop()) { showToast("اختبار Piper متاح في نسخة ويندوز"); return; }
-              const bridge = (globalThis as Record<string, unknown>).__MSAI_DESKTOP__ as { detectTools?: () => Promise<Record<string, boolean>> } | undefined;
-              const tools = (await bridge?.detectTools?.()) ?? {};
-              showToast(tools.piper ? "Piper مكتشف ✓" : "Piper غير مثبت — راجع دليل الإعداد");
-            }}
-          >{t("testBtn")}</button>
-        </div>
-      </div>
+      <div className="divider" />
 
-      <div className="ai-card">
-        <div className="head">
-          <b>{t("whisperTitle")}</b>
-          <span className={`badge ${ai.whisperEnabled ? "ok" : "off"}`}>{ai.whisperEnabled ? `✓ ${t("detected")}` : t("notDetected")}</span>
-          <span style={{ flex: 1 }} />
-          <label className="chip-row" style={{ gap: 6 }}>
-            <span className="muted" style={{ fontSize: 13 }}>{t("aiEnabled")}</span>
-            <input type="checkbox" checked={ai.whisperEnabled} onChange={(e) => patchAI({ whisperEnabled: e.target.checked })} />
-          </label>
-        </div>
-        <div className="desc">تحويل التسجيلات الصوتية إلى ترجمة نصية عربية/إنجليزية محلياً (whisper.cpp — نموذج صغير ≈ 150 م.ب).</div>
-        <div className="kv"><span>{t("modelSize")}:</span> <b>≈ 75–500 م.ب حسب الدقة</b></div>
-        <div className="kv"><span>{t("requirements")}:</span> <b>معالج رباعي النواة أو أفضل</b></div>
-      </div>
+      <ToolsManager />
 
       <div className="divider" />
 

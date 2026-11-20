@@ -8,6 +8,13 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, Emitter, Manager};
 
+const PIPER_URL: &str = "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip";
+const PIPER_VOICE_URL: &str = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ar/ar_JO/kareem/medium/ar_JO-kareem-medium.onnx";
+const PIPER_VOICE_JSON_URL: &str = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ar/ar_JO/kareem/medium/ar_JO-kareem-medium.onnx.json";
+const WHISPER_URL: &str = "https://github.com/ggml-org/whisper.cpp/releases/download/b5907/whisper-bin-x64.zip";
+const WHISPER_MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin";
+const FFMPEG_URL: &str = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+
 #[derive(Serialize, Clone)]
 struct ProgressPayload {
     seconds: f64,
@@ -58,12 +65,28 @@ fn has_executable(name: &str) -> bool {
     false
 }
 
+fn dir_has(dir: &str, matches: impl Fn(&str) -> bool) -> bool {
+    std::fs::read_dir(tools_dir().join(dir))
+        .ok()
+        .map_or(false, |entries| {
+            entries.flatten().any(|e| {
+                e.path()
+                    .extension()
+                    .map_or(false, |x| matches(&x.to_string_lossy()))
+            })
+        })
+}
+
 #[tauri::command]
 fn detect_tools() -> serde_json::Value {
     serde_json::json!({
         "ffmpeg": has_executable("ffmpeg"),
         "piper": has_executable("piper"),
         "whisper": has_executable("whisper-cli") || has_executable("whisper") || has_executable("main"),
+        "piperVoice": dir_has("voices", |ext| ext.eq_ignore_ascii_case("onnx")),
+        "whisperModel": dir_has("models", |ext| {
+            ext.eq_ignore_ascii_case("bin")
+        }),
     })
 }
 
@@ -289,12 +312,240 @@ fn whisper_transcribe(data_base64: String, file_name: String) -> Result<Option<S
     Ok(Some(String::from_utf8_lossy(&output.stdout).to_string()))
 }
 
+/// مدير تثبيت الأدوات الاختيارية: تنزيل بموافقة المستخدم عبر الواجهة.
+fn emit_progress(app: &AppHandle, tool: &str, step: &str, start: f64, span: f64, step_pct: f64) {
+    let _ = app.emit(
+        "tool-progress",
+        serde_json::json!({ "tool": tool, "step": step, "pct": (start + step_pct * span / 100.0).clamp(0.0, 100.0) }),
+    );
+}
+
+fn emit_done(app: &AppHandle, tool: &str, error: bool, message: &str) {
+    let _ = app.emit(
+        "tool-progress",
+        serde_json::json!({ "tool": tool, "step": message, "pct": 100.0, "done": true, "error": error }),
+    );
+}
+
+fn curl_total_size(url: &str) -> u64 {
+    if let Ok(out) = Command::new("curl").arg("-fsIL").arg(url).output() {
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut len: u64 = 0;
+        for line in text.lines() {
+            if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                len = v.trim().parse().unwrap_or(len);
+            }
+        }
+        return len;
+    }
+    0
+}
+
+fn curl_download(
+    app: &AppHandle,
+    tool: &str,
+    step: &str,
+    start: f64,
+    span: f64,
+    url: &str,
+    dest: &PathBuf,
+) -> Result<(), String> {
+    let total = curl_total_size(url);
+    let _ = std::fs::remove_file(dest);
+    let mut child = Command::new("curl")
+        .args(["-fL", "--retry", "3", "--output"])
+        .arg(dest)
+        .arg(url)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return Err("تعذّر تنزيل الملف — تحقق من الاتصال بالإنترنت وحاول مجدداً".into());
+                }
+                emit_progress(app, tool, step, start, span, 100.0);
+                return Ok(());
+            }
+            Ok(None) => {
+                if total > 0 {
+                    let done_now = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+                    emit_progress(app, tool, step, start, span, (done_now as f64 / total as f64) * 100.0);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(400));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
+fn find_path_named(base: &PathBuf, name: &str) -> Option<PathBuf> {
+    if base.file_name()?.to_string_lossy().eq_ignore_ascii_case(name) {
+        return Some(base.clone());
+    }
+    for entry in std::fs::read_dir(base).ok()?.flatten() {
+        let p = entry.path();
+        if let Some(found) = find_path_named(&p, name) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn copy_dir_contents(src: &PathBuf, dst: &PathBuf) -> Result<(), String> {
+    std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+    for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_dir_contents(&from, &to)?;
+        } else {
+            if let Some(p) = dst.parent() {
+                std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+            }
+            std::fs::copy(&from, &to).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn extract_zip(zip: &PathBuf, dest: &PathBuf) -> Result<(), String> {
+    std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    let script = format!(
+        "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
+        zip.display(),
+        dest.display()
+    );
+    let out = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err("تعذّر فكّ ضغط الحزمة".into())
+    }
+}
+
+fn run_install(app: AppHandle, tool: String) -> Result<String, String> {
+    let root = tools_dir();
+    let dl = root.join("downloads");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&dl).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&bin).map_err(|e| e.to_string())?;
+
+    let result: Result<String, String> = (|| {
+        match tool.as_str() {
+            "piper" => {
+                let zip = dl.join("piper.zip");
+                curl_download(&app, "piper", "تنزيل برنامج Piper (21 م.ب)", 0.0, 25.0, PIPER_URL, &zip)?;
+                let xtag = dl.join("piper-x");
+                emit_progress(&app, "piper", "فكّ ضغط البرنامج", 25.0, 5.0, 50.0);
+                extract_zip(&zip, &xtag)?;
+                let src = find_path_named(&xtag, "piper").ok_or("بناء الحزمة غير متوقع")?;
+                copy_dir_contents(&src, &bin)?;
+                emit_progress(&app, "piper", "تنزيل الصوت العربي “كريم” (60 م.ب)", 30.0, 68.0, 0.0);
+                curl_download(
+                    &app,
+                    "piper",
+                    "تنزيل الصوت العربي “كريم” (60 م.ب)",
+                    30.0,
+                    68.0,
+                    PIPER_VOICE_URL,
+                    &root.join("voices").join("ar_JO-kareem-medium.onnx"),
+                )?;
+                curl_download(
+                    &app,
+                    "piper",
+                    "تنزيل بيانات الصوت",
+                    98.0,
+                    2.0,
+                    PIPER_VOICE_JSON_URL,
+                    &root.join("voices").join("ar_JO-kareem-medium.onnx.json"),
+                )?;
+            }
+            "whisper" => {
+                let zip = dl.join("whisper-bin-x64.zip");
+                curl_download(&app, "whisper", "تنزيل برنامج Whisper (9 م.ب)", 0.0, 12.0, WHISPER_URL, &zip)?;
+                let xtag = dl.join("whisper-x");
+                emit_progress(&app, "whisper", "فكّ ضغط البرنامج", 12.0, 3.0, 50.0);
+                extract_zip(&zip, &xtag)?;
+                let src = find_path_named(&xtag, "Release").ok_or("بناء الحزمة غير متوقع")?;
+                copy_dir_contents(&src, &bin)?;
+                emit_progress(&app, "whisper", "تنزيل النموذج الصغير (75 م.ب)", 15.0, 85.0, 0.0);
+                curl_download(
+                    &app,
+                    "whisper",
+                    "تنزيل النموذج الصغير (75 م.ب)",
+                    15.0,
+                    85.0,
+                    WHISPER_MODEL_URL,
+                    &root.join("models").join("ggml-tiny.bin"),
+                )?;
+            }
+            "ffmpeg" => {
+                let zip = dl.join("ffmpeg-essentials.zip");
+                curl_download(&app, "ffmpeg", "تنزيل FFmpeg (114 م.ب)", 0.0, 92.0, FFMPEG_URL, &zip)?;
+                let xtag = dl.join("ffmpeg-x");
+                emit_progress(&app, "ffmpeg", "فكّ ضغط الحزمة", 92.0, 6.0, 50.0);
+                extract_zip(&zip, &xtag)?;
+                emit_progress(&app, "ffmpeg", "تثبيت الملفات", 98.0, 2.0, 50.0);
+                for name in ["ffmpeg.exe", "ffprobe.exe"] {
+                    let found = find_path_named(&xtag, name).ok_or("بناء الحزمة غير متوقع")?;
+                    std::fs::copy(&found, bin.join(name)).map_err(|e| e.to_string())?;
+                }
+            }
+            _ => return Err("أداة غير معروفة".into()),
+        }
+        Ok(tool.clone())
+    })();
+
+    let _ = std::fs::remove_dir_all(&dl).ok();
+    match &result {
+        Ok(t) => {
+            emit_done(&app, t, false, "اكتمل التثبيت ✓");
+            Ok(t.clone())
+        }
+        Err(m) => {
+            emit_done(&app, &tool, true, m);
+            Err(m.clone())
+        }
+    }
+}
+
+#[tauri::command]
+fn install_tool(app: AppHandle, tool: String) -> bool {
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        let _ = run_install(app2, tool);
+    });
+    true
+}
+
+#[tauri::command]
+fn open_tools_folder() -> bool {
+    let root = tools_dir();
+    let _ = std::fs::create_dir_all(&root);
+    #[cfg(windows)]
+    {
+        if let Ok(mut child) = Command::new("explorer").arg(&root).spawn() {
+            let _ = child.wait().ok();
+        }
+    }
+    true
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             detect_tools,
+            install_tool,
+            open_tools_folder,
             save_file,
             transcode_to_mp4,
             piper_tts,
