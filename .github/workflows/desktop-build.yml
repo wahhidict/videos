@@ -34,6 +34,10 @@ jobs:
           npm ci || npm install
           npm run build
 
+      - name: تنزيل FFmpeg المرفق مع Playwright (غير مثبّت مسبقاً على عدّادات ويندوز)
+        shell: bash
+        run: npx playwright install chromium
+
       - name: اختبارات المحرك والواجهة
         shell: bash
         run: |
