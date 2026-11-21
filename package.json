@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "npm run dev --workspace @msaipro/web",
     "build": "npm run build --workspace @msaipro/web",
+    "qa:gate": "tsx e2e/quality-gate.mts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspace @msaipro/core && npm run test --workspace @msaipro/web",
     "e2e:render": "tsx e2e/render-e2e.mts",
