@@ -1,0 +1,77 @@
+name: بناء نسخة ويندوز
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - ".github/workflows/desktop-build.yml"
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - ".github/workflows/desktop-build.yml"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: تثبيت الاعتماديات وبناء الويب
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: تنزيل FFmpeg المرفق مع Playwright (غير مثبّت مسبقاً على عدّادات ويندوز)
+        shell: bash
+        run: npx playwright install chromium
+
+      - name: اختبارات المحرك والواجهة
+        shell: bash
+        run: |
+          npm test
+          npm run e2e:render
+
+      - name: التحقق من أن أصول الواجهة مبنية قبل تغليف Tauri
+        shell: bash
+        run: |
+          test -f apps/web/dist/index.html || { echo "apps/web/dist/index.html is missing"; exit 1; }
+          echo "dist OK: $(ls apps/web/dist/assets | wc -l) asset files"
+
+      - name: بناء المثبّت
+        run: npm run desktop:build
+
+      - name: توحيد اسم المثبّت (GitHub لا يدعم أسماء أصول غير لاتينية — يؤدي إلى اسم مبتور)
+        shell: bash
+        run: |
+          mkdir -p release-bundle
+          cp apps/desktop/src-tauri/target/release/bundle/nsis/*_x64-setup.exe "release-bundle/motion-studio-ai-pro_${GITHUB_REF_NAME#v}_x64-setup.exe"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: motion-studio-ai-pro-windows
+          path: release-bundle/motion-studio-ai-pro_*_x64-setup.exe
+
+      - name: نشر المثبّت كـ Release (مثل مشاريع Tauri — تنزيل مباشر بلا تسجيل دخول)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-bundle/motion-studio-ai-pro_*_x64-setup.exe
+          generate_release_notes: true

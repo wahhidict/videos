@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "استوديو الحركة الذكي",
+  "version": "3.0.0",
+  "identifier": "pro.msaipro.desktop",
+  "build": {
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "استوديو الحركة الذكي — نسخة ويندوز",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 940,
+        "minHeight": 620,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico", "icons/32x32.png", "icons/128x128.png"],
+    "windows": {
+      "nsis": {
+        "languages": ["Arabic", "English"],
+        "displayLanguageSelector": true
+      }
+    }
+  }
+}
